@@ -13,7 +13,8 @@
 		"bracketSameLine": false,
 		"bracketSpacing": true,
 		"expand": "auto",
-		"useEditorconfig": true
+		"useEditorconfig": true,
+		"sortImports": "on"
 	},
 	"linter": {
 		"enabled": true,
@@ -110,7 +111,10 @@
 			"attributePosition": "auto",
 			"bracketSpacing": true
 		},
-		"globals": ["exports"]
+		"globals": ["exports"],
+		"parser": {
+			"unsafeParameterDecoratorsEnabled": true
+		}
 	},
 	"html": {
 		"formatter": {
@@ -121,6 +125,11 @@
 	"overrides": [
 		{
 			"includes": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
+			"javascript": {
+				"parser": {
+					"unsafeParameterDecoratorsEnabled": true
+				}
+			},
 			"linter": {
 				"rules": {
 					"complexity": { "noArguments": "error" },
