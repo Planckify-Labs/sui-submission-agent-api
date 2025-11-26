@@ -32,7 +32,7 @@ export class ChatController {
         throw new BadRequestException('Messages must be an array')
       }
 
-      return this.chatService.streamChatResponse(messages)
+      return await this.chatService.streamChatResponse(messages)
     } catch (error: unknown) {
       console.error('Chat API error:', error)
 
