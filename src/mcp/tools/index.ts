@@ -13,16 +13,24 @@ import { getSupportedChainsTool, handleGetSupportedChains } from './chains.tool'
 import { estimateGasTool, handleEstimateGas } from './gas.tool';
 import { takumiPayProductTools, createTakumiPayToolHandlers } from './products.tool';
 
-export const blockchainTools: Tool[] = [
+export const blockchainReadOnlyTools: Tool[] = [
   getBalanceTool,
-  sendNativeTokenTool,
   readContractTool,
-  writeContractTool,
   getTransactionTool,
+  getSupportedChainsTool,
+];
+
+export const blockchainWalletTools: Tool[] = [
+  sendNativeTokenTool,
+  writeContractTool,
   getWalletAddressTool,
   getWalletBalanceTool,
-  getSupportedChainsTool,
   estimateGasTool,
+];
+
+export const blockchainTools: Tool[] = [
+  ...blockchainReadOnlyTools,
+  ...blockchainWalletTools,
 ];
 
 export { takumiPayProductTools, createTakumiPayToolHandlers };

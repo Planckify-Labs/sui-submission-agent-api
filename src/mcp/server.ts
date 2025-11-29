@@ -7,9 +7,7 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-
-import { blockchainTools, createToolHandlers, takumiPayProductTools, type ToolResponse } from './tools/index';
-
+import { blockchainReadOnlyTools, blockchainWalletTools, createToolHandlers, takumiPayProductTools, type ToolResponse } from './tools/index';
 import { ChainRegistry, getDefaultChainRegistry } from '../blockchain/chains/chain-registry';
 import { ViemClientFactory, createClientFactory } from '../blockchain/clients/client-factory';
 import { AgentWalletService, createWalletService, WalletConfigurationError } from '../blockchain/services/wallet.service';
@@ -59,11 +57,17 @@ const legacyTools: Tool[] = [
   },
 ];
 
-function getAvailableTools(takumiPayAvailable: boolean): Tool[] {
-  const tools: Tool[] = [...legacyTools, ...blockchainTools];
-  if (takumiPayAvailable) {
+function getAvailableTools(options: { walletAvailable: boolean; takumiPayAvailable: boolean }): Tool[] {
+  const tools: Tool[] = [...legacyTools, ...blockchainReadOnlyTools];
+  
+  if (options.walletAvailable) {
+    tools.push(...blockchainWalletTools);
+  }
+  
+  if (options.takumiPayAvailable) {
     tools.push(...takumiPayProductTools);
   }
+  
   return tools;
 }
 
@@ -154,7 +158,11 @@ async function main() {
   const { chainRegistry, walletService, blockchainService } = initializeBlockchainServices();
   const takumiPayService = initializeTakumiPayService();
 
-  const tools = getAvailableTools(takumiPayService !== null);
+  const walletAvailable = walletService !== null;
+  const tools = getAvailableTools({ 
+    walletAvailable, 
+    takumiPayAvailable: takumiPayService !== null 
+  });
 
   const allHandlers = createToolHandlers({
     blockchainService,
@@ -254,9 +262,17 @@ async function main() {
   await server.connect(transport);
 
   const takumiPayToolCount = takumiPayService ? takumiPayProductTools.length : 0;
+  const walletToolCount = walletAvailable ? blockchainWalletTools.length : 0;
+  
   console.error('MCP Server running on stdio');
-  console.error(`Loaded ${tools.length} tools (${legacyTools.length} legacy + ${blockchainTools.length} blockchain + ${takumiPayToolCount} takumipay)`);
+  console.error(`Loaded ${tools.length} tools (${legacyTools.length} legacy + ${blockchainReadOnlyTools.length} blockchain-readonly + ${walletToolCount} wallet + ${takumiPayToolCount} takumipay)`);
   console.error(`Chain registry loaded with ${chainRegistry.getChainCount()} chains`);
+  
+  if (!walletAvailable) {
+    console.error('WARNING: Wallet tools NOT available - AGENT_WALLET_PRIVATE_KEY not configured');
+    console.error('The following tools are disabled: send_native_token, write_contract, get_wallet_address, get_wallet_balance, estimate_gas');
+  }
+  
   if (takumiPayService) {
     console.error('TakumiPay product tools are available');
   }
