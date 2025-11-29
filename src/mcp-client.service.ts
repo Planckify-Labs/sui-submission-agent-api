@@ -17,7 +17,7 @@ export class MCPClientService implements OnModuleInit, OnModuleDestroy {
   constructor(private configService: ConfigService) {
     this.config = {
       command: this.configService.get<string>('MCP_COMMAND', 'node'),
-      args: this.configService.get<string>('MCP_ARGS', 'dist/mcp-server.js').split(','),
+      args: this.configService.get<string>('MCP_ARGS', 'dist/mcp/server.js').split(','),
     };
   }
 

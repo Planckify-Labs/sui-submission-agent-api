@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -7,6 +8,13 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
+import { blockchainTools, createToolHandlers, type ToolResponse } from './tools/index';
+
+import { ChainRegistry, getDefaultChainRegistry } from '../blockchain/chains/chain-registry';
+import { ViemClientFactory, createClientFactory } from '../blockchain/clients/client-factory';
+import { AgentWalletService, createWalletService, WalletConfigurationError } from '../blockchain/services/wallet.service';
+import { ViemBlockchainService } from '../blockchain/services/blockchain.service';
+
 const OwnerToolInputSchema = z.object({});
 
 const CalculatorToolInputSchema = z.object({
@@ -15,7 +23,7 @@ const CalculatorToolInputSchema = z.object({
   b: z.number(),
 });
 
-const tools: Tool[] = [
+const legacyTools: Tool[] = [
   {
     name: 'owner',
     description: 'Returns the owner name of this system',
@@ -50,6 +58,9 @@ const tools: Tool[] = [
   },
 ];
 
+
+const tools: Tool[] = [...legacyTools, ...blockchainTools];
+
 function handleOwnerTool(): { owner: string } {
   return { owner: 'satriaali' };
 }
@@ -79,7 +90,53 @@ function handleCalculatorTool(input: z.infer<typeof CalculatorToolInputSchema>):
   return { result };
 }
 
+function initializeBlockchainServices(): {
+  chainRegistry: ChainRegistry;
+  clientFactory: ViemClientFactory;
+  walletService: AgentWalletService | null;
+  blockchainService: ViemBlockchainService;
+} {
+  const chainRegistry = getDefaultChainRegistry();
+
+  const clientFactory = createClientFactory(chainRegistry);
+
+  let walletService: AgentWalletService | null = null;
+  try {
+    walletService = createWalletService();
+    console.error('Wallet service initialized successfully');
+  } catch (error) {
+    if (error instanceof WalletConfigurationError) {
+      console.error('Warning: Wallet service not initialized - AGENT_WALLET_PRIVATE_KEY not configured');
+      console.error('Wallet-dependent tools (send_native_token, write_contract, etc.) will not be available');
+    } else {
+      throw error;
+    }
+  }
+
+  const blockchainService = new ViemBlockchainService(
+    clientFactory,
+    walletService,
+    chainRegistry
+  );
+
+  return {
+    chainRegistry,
+    clientFactory,
+    walletService,
+    blockchainService,
+  };
+}
+
+
 async function main() {
+  const { chainRegistry, walletService, blockchainService } = initializeBlockchainServices();
+
+  const blockchainHandlers = createToolHandlers({
+    blockchainService,
+    walletService,
+    chainRegistry,
+  });
+
   const server = new Server(
     {
       name: 'takumi-mcp-server',
@@ -126,15 +183,44 @@ async function main() {
             ],
           };
         }
-
-        default:
-          throw new Error(`Unknown tool: ${name}`);
       }
+
+      const blockchainHandler = blockchainHandlers.get(name);
+      if (blockchainHandler) {
+        const result: ToolResponse = await blockchainHandler(args);
+        return result;
+      }
+
+      throw new Error(`Unknown tool: ${name}`);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        throw new Error(`Invalid input: ${error.message}`);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                type: 'validation',
+                message: 'Input validation failed',
+                details: { errors: error.issues },
+              }),
+            },
+          ],
+          isError: true,
+        };
       }
-      throw error;
+      
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              type: 'unknown',
+              message: error instanceof Error ? error.message : 'Unknown error occurred',
+            }),
+          },
+        ],
+        isError: true,
+      };
     }
   });
 
@@ -142,6 +228,8 @@ async function main() {
   await server.connect(transport);
 
   console.error('MCP Server running on stdio');
+  console.error(`Loaded ${tools.length} tools (${legacyTools.length} legacy + ${blockchainTools.length} blockchain)`);
+  console.error(`Chain registry loaded with ${chainRegistry.getChainCount()} chains`);
 }
 
 main().catch((error) => {
