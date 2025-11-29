@@ -1,5 +1,5 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { TakumiPayService } from '../../takumipay';
+import type { TakumiPayService, CustomerInfo } from '../../takumipay';
 import type { ToolResponse } from './index';
 
 export const getProductsTool: Tool = {
@@ -23,13 +23,13 @@ export const getProductsTool: Tool = {
 
 export const searchProductsTool: Tool = {
   name: 'takumipay_search_products',
-  description: 'Search for products by name, code, vendor, or other criteria. Use this to find specific products or filter by category.',
+  description: 'Search for products by name, code, or other criteria. Use this to find specific products or filter by category.',
   inputSchema: {
     type: 'object',
     properties: {
       query: {
         type: 'string',
-        description: 'General search query (searches name, code, and vendor)',
+        description: 'General search query (searches name and code)',
       },
       name: {
         type: 'string',
@@ -38,14 +38,6 @@ export const searchProductsTool: Tool = {
       code: {
         type: 'string',
         description: 'Filter by product code (partial match)',
-      },
-      vendorName: {
-        type: 'string',
-        description: 'Filter by vendor name (partial match)',
-      },
-      vendorId: {
-        type: 'string',
-        description: 'Filter by specific vendor ID',
       },
       isVoucher: {
         type: 'boolean',
@@ -286,7 +278,7 @@ export const getProductInputFieldsTool: Tool = {
 
 export const getProductPricesTool: Tool = {
   name: 'takumipay_get_product_prices',
-  description: 'Get all pricing information for a specific product across different vendors.',
+  description: 'Get all pricing information for a specific product.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -488,10 +480,6 @@ export const searchPurchasesTool: Tool = {
         type: 'string',
         description: 'Filter by product ID',
       },
-      vendorId: {
-        type: 'string',
-        description: 'Filter by vendor ID',
-      },
       tokenId: {
         type: 'string',
         description: 'Filter by token ID',
@@ -527,10 +515,6 @@ export const getPurchaseByIdTool: Tool = {
       id: {
         type: 'string',
         description: 'The purchase ID',
-      },
-      includeVendorResponse: {
-        type: 'boolean',
-        description: 'Whether to include full vendor response data',
       },
     },
     required: ['id'],
@@ -585,8 +569,10 @@ export const takumiPayProductTools: Tool[] = [
 // ==================== Handler Functions ====================
 
 function createSuccessResponse(data: unknown): ToolResponse {
+  // Strip vendor information before exposing to AI context
+  const sanitizedData = stripVendorInfo(data);
   return {
-    content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
+    content: [{ type: 'text', text: JSON.stringify(sanitizedData, null, 2) }],
   };
 }
 
@@ -596,6 +582,38 @@ function createErrorResponse(error: unknown): ToolResponse {
     content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
     isError: true,
   };
+}
+
+// Strip vendor-related information from data before exposing to AI context
+function stripVendorInfo<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+
+  if (Array.isArray(data)) {
+    return data.map(item => stripVendorInfo(item)) as T;
+  }
+
+  if (typeof data === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      // Skip vendor-related fields - never expose to AI context
+      if (
+        key === 'vendor' ||
+        key === 'vendorId' ||
+        key === 'vendorName' ||
+        key === 'vendorResponse' ||
+        key === 'vendorRefId' ||
+        key === 'priceFromVendor'
+      ) {
+        continue;
+      }
+      result[key] = stripVendorInfo(value);
+    }
+    return result as T;
+  }
+
+  return data;
 }
 
 export async function handleGetProducts(
@@ -616,18 +634,25 @@ export async function handleSearchProducts(
   takumiPayService: TakumiPayService,
 ): Promise<ToolResponse> {
   try {
-    const params = args as {
+    const { query, name, code, isVoucher, active, cursor, take } = (args as {
       query?: string;
       name?: string;
       code?: string;
-      vendorName?: string;
-      vendorId?: string;
       isVoucher?: boolean;
       active?: boolean;
       cursor?: string;
       take?: number;
-    };
-    const products = await takumiPayService.searchProducts(params);
+    }) ?? {};
+    // Never pass vendor-related params even if somehow provided
+    const products = await takumiPayService.searchProducts({
+      query,
+      name,
+      code,
+      isVoucher,
+      active,
+      cursor,
+      take,
+    });
     return createSuccessResponse({ count: products.length, products });
   } catch (error) {
     return createErrorResponse(error);
@@ -851,7 +876,7 @@ export async function handleCreateBooking(
         blockchainId: string;
         exchangeRateId: number;
       };
-      customerInfo?: Record<string, unknown>;
+      customerInfo?: CustomerInfo;
     };
     
     if (!params.walletAddress || !params.productVariantId || !params.productPriceId || !params.payment) {
@@ -985,18 +1010,27 @@ export async function handleSearchPurchases(
   takumiPayService: TakumiPayService,
 ): Promise<ToolResponse> {
   try {
-    const params = args as {
+    const { userId, transactionId, productId, tokenId, blockchainId, status, cursor, take } = (args as {
       userId?: string;
       transactionId?: string;
       productId?: string;
-      vendorId?: string;
       tokenId?: string;
       blockchainId?: string;
       status?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
       cursor?: string;
       take?: number;
-    };
-    const purchases = await takumiPayService.searchPurchases(params);
+    }) ?? {};
+    // Never pass vendorId even if somehow provided
+    const purchases = await takumiPayService.searchPurchases({
+      userId,
+      transactionId,
+      productId,
+      tokenId,
+      blockchainId,
+      status,
+      cursor,
+      take,
+    });
     return createSuccessResponse({ count: purchases.length, purchases });
   } catch (error) {
     return createErrorResponse(error);
@@ -1008,13 +1042,14 @@ export async function handleGetPurchaseById(
   takumiPayService: TakumiPayService,
 ): Promise<ToolResponse> {
   try {
-    const { id, includeVendorResponse } = args as { id: string; includeVendorResponse?: boolean };
+    const { id } = args as { id: string };
     
     if (!id) {
       return createErrorResponse(new Error('Purchase ID is required'));
     }
     
-    const purchase = await takumiPayService.getPurchaseById(id, includeVendorResponse);
+    // Never include vendor response in AI context
+    const purchase = await takumiPayService.getPurchaseById(id, false);
     return createSuccessResponse(purchase);
   } catch (error) {
     return createErrorResponse(error);
