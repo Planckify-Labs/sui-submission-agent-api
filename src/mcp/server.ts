@@ -8,12 +8,13 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-import { blockchainTools, createToolHandlers, type ToolResponse } from './tools/index';
+import { blockchainTools, createToolHandlers, takumiPayProductTools, type ToolResponse } from './tools/index';
 
 import { ChainRegistry, getDefaultChainRegistry } from '../blockchain/chains/chain-registry';
 import { ViemClientFactory, createClientFactory } from '../blockchain/clients/client-factory';
 import { AgentWalletService, createWalletService, WalletConfigurationError } from '../blockchain/services/wallet.service';
 import { ViemBlockchainService } from '../blockchain/services/blockchain.service';
+import { TakumiPayService, TakumiPayServiceError, createTakumiPayService } from '../takumipay';
 
 const OwnerToolInputSchema = z.object({});
 
@@ -58,8 +59,13 @@ const legacyTools: Tool[] = [
   },
 ];
 
-
-const tools: Tool[] = [...legacyTools, ...blockchainTools];
+function getAvailableTools(takumiPayAvailable: boolean): Tool[] {
+  const tools: Tool[] = [...legacyTools, ...blockchainTools];
+  if (takumiPayAvailable) {
+    tools.push(...takumiPayProductTools);
+  }
+  return tools;
+}
 
 function handleOwnerTool(): { owner: string } {
   return { owner: 'satriaali' };
@@ -127,14 +133,34 @@ function initializeBlockchainServices(): {
   };
 }
 
+function initializeTakumiPayService(): TakumiPayService | null {
+  try {
+    const service = createTakumiPayService();
+    console.error('TakumiPay service initialized successfully');
+    return service;
+  } catch (error) {
+    if (error instanceof TakumiPayServiceError) {
+      console.error(`Warning: TakumiPay service not initialized - ${error.message}`);
+      console.error('TakumiPay product tools will not be available');
+    } else {
+      throw error;
+    }
+  }
+  return null;
+}
+
 
 async function main() {
   const { chainRegistry, walletService, blockchainService } = initializeBlockchainServices();
+  const takumiPayService = initializeTakumiPayService();
 
-  const blockchainHandlers = createToolHandlers({
+  const tools = getAvailableTools(takumiPayService !== null);
+
+  const allHandlers = createToolHandlers({
     blockchainService,
     walletService,
     chainRegistry,
+    takumiPayService,
   });
 
   const server = new Server(
@@ -185,9 +211,9 @@ async function main() {
         }
       }
 
-      const blockchainHandler = blockchainHandlers.get(name);
-      if (blockchainHandler) {
-        const result: ToolResponse = await blockchainHandler(args);
+      const handler = allHandlers.get(name);
+      if (handler) {
+        const result: ToolResponse = await handler(args);
         return result;
       }
 
@@ -227,9 +253,13 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
+  const takumiPayToolCount = takumiPayService ? takumiPayProductTools.length : 0;
   console.error('MCP Server running on stdio');
-  console.error(`Loaded ${tools.length} tools (${legacyTools.length} legacy + ${blockchainTools.length} blockchain)`);
+  console.error(`Loaded ${tools.length} tools (${legacyTools.length} legacy + ${blockchainTools.length} blockchain + ${takumiPayToolCount} takumipay)`);
   console.error(`Chain registry loaded with ${chainRegistry.getChainCount()} chains`);
+  if (takumiPayService) {
+    console.error('TakumiPay product tools are available');
+  }
 }
 
 main().catch((error) => {
