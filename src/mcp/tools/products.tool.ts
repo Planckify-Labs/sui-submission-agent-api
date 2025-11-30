@@ -1,6 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { TakumiPayService, CustomerInfo } from '../../takumipay';
 import type { ToolResponse } from './index';
+import { createTransformedResponse, type ToolResponseConfig } from './response-transformer';
 
 export const getProductsTool: Tool = {
   name: 'takumipay_get_products',
@@ -568,52 +569,12 @@ export const takumiPayProductTools: Tool[] = [
 
 // ==================== Handler Functions ====================
 
-function createSuccessResponse(data: unknown): ToolResponse {
-  // Strip vendor information before exposing to AI context
-  const sanitizedData = stripVendorInfo(data);
-  return {
-    content: [{ type: 'text', text: JSON.stringify(sanitizedData, null, 2) }],
-  };
-}
-
 function createErrorResponse(error: unknown): ToolResponse {
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
   return {
     content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
     isError: true,
   };
-}
-
-// Strip vendor-related information from data before exposing to AI context
-function stripVendorInfo<T>(data: T): T {
-  if (data === null || data === undefined) {
-    return data;
-  }
-
-  if (Array.isArray(data)) {
-    return data.map(item => stripVendorInfo(item)) as T;
-  }
-
-  if (typeof data === 'object') {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-      // Skip vendor-related fields - never expose to AI context
-      if (
-        key === 'vendor' ||
-        key === 'vendorId' ||
-        key === 'vendorName' ||
-        key === 'vendorResponse' ||
-        key === 'vendorRefId' ||
-        key === 'priceFromVendor'
-      ) {
-        continue;
-      }
-      result[key] = stripVendorInfo(value);
-    }
-    return result as T;
-  }
-
-  return data;
 }
 
 export async function handleGetProducts(
@@ -623,7 +584,7 @@ export async function handleGetProducts(
   try {
     const { cursor, take } = (args as { cursor?: string; take?: number }) ?? {};
     const products = await takumiPayService.getProducts({ cursor, take });
-    return createSuccessResponse({ count: products.length, products });
+    return createTransformedResponse({ count: products.length, products }, 'takumipay_get_products');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -653,7 +614,7 @@ export async function handleSearchProducts(
       cursor,
       take,
     });
-    return createSuccessResponse({ count: products.length, products });
+    return createTransformedResponse({ count: products.length, products }, 'takumipay_search_products');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -669,7 +630,7 @@ export async function handleGetProductById(
       return createErrorResponse(new Error('Product ID is required'));
     }
     const product = await takumiPayService.getProductById(id);
-    return createSuccessResponse(product);
+    return createTransformedResponse(product, 'takumipay_get_product_by_id');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -685,7 +646,7 @@ export async function handleGetProductByCode(
       return createErrorResponse(new Error('Product code is required'));
     }
     const product = await takumiPayService.getProductByCode(code);
-    return createSuccessResponse(product);
+    return createTransformedResponse(product, 'takumipay_get_product_by_code');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -698,7 +659,7 @@ export async function handleGetVouchers(
   try {
     const { cursor, take } = (args as { cursor?: string; take?: number }) ?? {};
     const vouchers = await takumiPayService.getVouchers({ cursor, take });
-    return createSuccessResponse({ count: vouchers.length, vouchers });
+    return createTransformedResponse({ count: vouchers.length, vouchers }, 'takumipay_get_vouchers');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -711,7 +672,7 @@ export async function handleGetNonVouchers(
   try {
     const { cursor, take } = (args as { cursor?: string; take?: number }) ?? {};
     const products = await takumiPayService.getNonVouchers({ cursor, take });
-    return createSuccessResponse({ count: products.length, products });
+    return createTransformedResponse({ count: products.length, products }, 'takumipay_get_non_vouchers');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -724,7 +685,7 @@ export async function handleGetProductsGroupedByCategories(
   try {
     const { take } = (args as { take?: number }) ?? {};
     const grouped = await takumiPayService.getProductsGroupedByCategories(take);
-    return createSuccessResponse({ categoryCount: grouped.length, categories: grouped });
+    return createTransformedResponse({ categoryCount: grouped.length, categories: grouped }, 'takumipay_get_products_grouped_by_categories');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -740,7 +701,7 @@ export async function handleGetProductsByCategory(
       return createErrorResponse(new Error('Category ID is required'));
     }
     const products = await takumiPayService.getProductsByCategory(categoryId);
-    return createSuccessResponse({ count: products.length, products });
+    return createTransformedResponse({ count: products.length, products }, 'takumipay_get_products_by_category');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -753,7 +714,7 @@ export async function handleGetCategories(
   try {
     const { cursor, take } = (args as { cursor?: string; take?: number }) ?? {};
     const categories = await takumiPayService.getCategories({ cursor, take });
-    return createSuccessResponse({ count: categories.length, categories });
+    return createTransformedResponse({ count: categories.length, categories }, 'takumipay_get_categories');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -769,7 +730,7 @@ export async function handleGetCategoryById(
       return createErrorResponse(new Error('Category ID is required'));
     }
     const category = await takumiPayService.getCategoryById(id);
-    return createSuccessResponse(category);
+    return createTransformedResponse(category, 'takumipay_get_category_by_id');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -785,7 +746,7 @@ export async function handleGetProductVariants(
       return createErrorResponse(new Error('Product ID is required'));
     }
     const variants = await takumiPayService.getProductVariants(productId);
-    return createSuccessResponse({ count: variants.length, variants });
+    return createTransformedResponse({ count: variants.length, variants }, 'takumipay_get_product_variants');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -801,7 +762,7 @@ export async function handleGetVariantById(
       return createErrorResponse(new Error('Variant ID is required'));
     }
     const variant = await takumiPayService.getVariantById(variantId);
-    return createSuccessResponse(variant);
+    return createTransformedResponse(variant, 'takumipay_get_variant_by_id');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -822,7 +783,7 @@ export async function handleSearchVariants(
       take?: number;
     };
     const variants = await takumiPayService.searchVariants(params);
-    return createSuccessResponse({ count: variants.length, variants });
+    return createTransformedResponse({ count: variants.length, variants }, 'takumipay_search_variants');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -838,7 +799,7 @@ export async function handleGetProductInputFields(
       return createErrorResponse(new Error('Product ID is required'));
     }
     const inputFields = await takumiPayService.getProductInputFields(productId);
-    return createSuccessResponse(inputFields);
+    return createTransformedResponse(inputFields, 'takumipay_get_product_input_fields');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -854,7 +815,7 @@ export async function handleGetProductPrices(
       return createErrorResponse(new Error('Product ID is required'));
     }
     const prices = await takumiPayService.getProductPrices(productId);
-    return createSuccessResponse({ count: prices.length, prices });
+    return createTransformedResponse({ count: prices.length, prices }, 'takumipay_get_product_prices');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -865,6 +826,7 @@ export async function handleGetProductPrices(
 export async function handleCreateBooking(
   args: unknown,
   takumiPayService: TakumiPayService,
+  responseConfig?: ToolResponseConfig,
 ): Promise<ToolResponse> {
   try {
     const params = args as {
@@ -884,7 +846,8 @@ export async function handleCreateBooking(
     }
     
     const booking = await takumiPayService.createBooking(params);
-    return createSuccessResponse(booking);
+    // Use transformed response to reduce token usage
+    return createTransformedResponse(booking, 'takumipay_create_booking', responseConfig);
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -906,7 +869,7 @@ export async function handleGetWalletBookings(
     }
     
     const bookings = await takumiPayService.getWalletBookings(walletAddress, { status, productId });
-    return createSuccessResponse({ count: bookings.length, bookings });
+    return createTransformedResponse({ count: bookings.length, bookings }, 'takumipay_get_wallet_bookings');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -924,7 +887,7 @@ export async function handleGetLatestBooking(
     }
     
     const booking = await takumiPayService.getLatestBooking(walletAddress);
-    return createSuccessResponse(booking);
+    return createTransformedResponse(booking, 'takumipay_get_latest_booking');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -933,6 +896,7 @@ export async function handleGetLatestBooking(
 export async function handleCreatePurchase(
   args: unknown,
   takumiPayService: TakumiPayService,
+  responseConfig?: ToolResponseConfig,
 ): Promise<ToolResponse> {
   try {
     const params = args as {
@@ -950,7 +914,8 @@ export async function handleCreatePurchase(
     }
     
     const purchase = await takumiPayService.createPurchase(params);
-    return createSuccessResponse(purchase);
+    // Use transformed response to reduce token usage
+    return createTransformedResponse(purchase, 'takumipay_create_purchase', responseConfig);
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -963,7 +928,7 @@ export async function handleGetPurchases(
   try {
     const { cursor, take } = (args as { cursor?: string; take?: number }) ?? {};
     const purchases = await takumiPayService.getPurchases({ cursor, take });
-    return createSuccessResponse({ count: purchases.length, purchases });
+    return createTransformedResponse({ count: purchases.length, purchases }, 'takumipay_get_purchases');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -995,7 +960,7 @@ export async function handleSearchPurchases(
       cursor,
       take,
     });
-    return createSuccessResponse({ count: purchases.length, purchases });
+    return createTransformedResponse({ count: purchases.length, purchases }, 'takumipay_search_purchases');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -1014,7 +979,7 @@ export async function handleGetPurchaseById(
     
     // Never include vendor response in AI context
     const purchase = await takumiPayService.getPurchaseById(id, false);
-    return createSuccessResponse(purchase);
+    return createTransformedResponse(purchase, 'takumipay_get_purchase_by_id');
   } catch (error) {
     return createErrorResponse(error);
   }
@@ -1023,6 +988,7 @@ export async function handleGetPurchaseById(
 export async function handleGetPurchaseStatusByRefId(
   args: unknown,
   takumiPayService: TakumiPayService,
+  responseConfig?: ToolResponseConfig,
 ): Promise<ToolResponse> {
   try {
     const { refId } = args as { refId: string };
@@ -1032,7 +998,8 @@ export async function handleGetPurchaseStatusByRefId(
     }
     
     const status = await takumiPayService.getPurchaseStatusByRefId(refId);
-    return createSuccessResponse(status);
+    // Use transformed response to reduce token usage
+    return createTransformedResponse(status, 'takumipay_get_purchase_status_by_ref_id', responseConfig);
   } catch (error) {
     return createErrorResponse(error);
   }

@@ -141,3 +141,16 @@ export {
   estimateGasTool,
   handleEstimateGas,
 };
+
+// Response transformer utilities for customizing tool responses
+export {
+  transformResponse,
+  createTransformedResponse,
+  setToolConfig,
+  getToolConfig,
+  addGlobalExclusions,
+  getResponseStats,
+  type ResponseProfile,
+  type FieldConfig,
+  type ToolResponseConfig,
+} from './response-transformer';
