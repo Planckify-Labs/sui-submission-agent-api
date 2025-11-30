@@ -7,7 +7,7 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { blockchainReadOnlyTools, blockchainWalletTools, createToolHandlers, takumiPayProductTools, exchangeRateTools, type ToolResponse } from './tools/index';
+import { blockchainReadOnlyTools, blockchainWalletTools, createToolHandlers, takumiPayProductTools, exchangeRateTools, tokenContractTools, type ToolResponse } from './tools/index';
 import { ChainRegistry, getDefaultChainRegistry } from '../blockchain/chains/chain-registry';
 import { ViemClientFactory, createClientFactory } from '../blockchain/clients/client-factory';
 import { AgentWalletService, createWalletService, WalletConfigurationError } from '../blockchain/services/wallet.service';
@@ -67,6 +67,7 @@ function getAvailableTools(options: { walletAvailable: boolean; takumiPayAvailab
   if (options.takumiPayAvailable) {
     tools.push(...takumiPayProductTools);
     tools.push(...exchangeRateTools);
+    tools.push(...tokenContractTools);
   }
   
   return tools;
@@ -262,7 +263,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  const takumiPayToolCount = takumiPayService ? takumiPayProductTools.length + exchangeRateTools.length : 0;
+  const takumiPayToolCount = takumiPayService ? takumiPayProductTools.length + exchangeRateTools.length + tokenContractTools.length : 0;
   const walletToolCount = walletAvailable ? blockchainWalletTools.length : 0;
   
   console.error('MCP Server running on stdio');

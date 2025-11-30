@@ -212,6 +212,37 @@ export interface ExchangeRateParams {
   toCurrency?: string;
 }
 
+export interface SearchTokenParams {
+  symbol?: string;
+  name?: string;
+  blockchainId?: string;
+  contractAddress?: string;
+  isStablecoin?: boolean;
+  isActive?: boolean;
+  isNativeCurrency?: boolean;
+  cursor?: string;
+  take?: number;
+}
+
+export interface TokenResponse {
+  id: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  contractAddress: string | null;
+  blockchainId: string;
+  blockchain: {
+    id: string;
+    name: string;
+    chainId: number;
+    isEVM: boolean;
+    isTestnet: boolean;
+  };
+  isStablecoin: boolean;
+  isActive: boolean;
+  isNativeCurrency: boolean;
+}
+
 export interface ExchangeRateResponse {
   id: number;
   fromCurrency: string;
@@ -227,6 +258,25 @@ export interface ExchangeRateResponse {
   isActive: boolean;
   createdAt: string;
   cursor: string;
+}
+
+export interface ContractABIResponse {
+  id: string;
+  name: string;
+  abi: object[];
+}
+
+export interface SmartContractResponse {
+  id: string;
+  name: string;
+  address: string;
+  blockchain: {
+    id: string;
+    name: string;
+    chainId: number;
+  };
+  abi: ContractABIResponse;
+  isActive: boolean;
 }
 
 export class TakumiPayServiceError extends Error {
@@ -502,6 +552,25 @@ export class TakumiPayService {
   async getExchangeRateById(id: number): Promise<ExchangeRateResponse> {
     return this.handleRequest(
       this.client.get(`exchange-rates/${id}`).json<ExchangeRateResponse>(),
+    );
+  }
+
+  async getSmartContractByChainId(chainId: number): Promise<SmartContractResponse> {
+    return this.handleRequest(
+      this.client.get(`smart-contracts/chain/${chainId}`).json<SmartContractResponse>(),
+    );
+  }
+
+  async searchTokens(params?: SearchTokenParams): Promise<TokenResponse[]> {
+    const searchParams = params ? this.buildSearchParams({ ...params }) : undefined;
+    return this.handleRequest(
+      this.client.get('tokens/search', { searchParams }).json<TokenResponse[]>(),
+    );
+  }
+
+  async getTokenById(id: string): Promise<TokenResponse> {
+    return this.handleRequest(
+      this.client.get(`tokens/${id}`).json<TokenResponse>(),
     );
   }
 }

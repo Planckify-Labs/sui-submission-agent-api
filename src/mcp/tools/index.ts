@@ -13,6 +13,7 @@ import { getSupportedChainsTool, handleGetSupportedChains } from './chains.tool'
 import { estimateGasTool, handleEstimateGas } from './gas.tool';
 import { takumiPayProductTools, createTakumiPayToolHandlers } from './products.tool';
 import { exchangeRateTools, createExchangeRateToolHandlers } from './exchange-rate.tool';
+import { tokenContractTools, createTokenContractToolHandlers } from './token-contract.tool';
 
 export const blockchainReadOnlyTools: Tool[] = [
   getBalanceTool,
@@ -36,6 +37,7 @@ export const blockchainTools: Tool[] = [
 
 export { takumiPayProductTools, createTakumiPayToolHandlers };
 export { exchangeRateTools, createExchangeRateToolHandlers };
+export { tokenContractTools, createTokenContractToolHandlers };
 
 export type ToolResponse = {
   content: [{ type: 'text'; text: string }];
@@ -107,6 +109,11 @@ export function createToolHandlers(services: {
 
     const exchangeRateHandlers = createExchangeRateToolHandlers(takumiPayService);
     for (const [name, handler] of exchangeRateHandlers) {
+      handlers.set(name, handler);
+    }
+
+    const tokenContractHandlers = createTokenContractToolHandlers(takumiPayService);
+    for (const [name, handler] of tokenContractHandlers) {
       handlers.set(name, handler);
     }
   }
