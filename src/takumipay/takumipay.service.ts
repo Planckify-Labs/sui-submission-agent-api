@@ -207,6 +207,28 @@ export interface ProductInputField {
   forms: unknown[];
 }
 
+export interface ExchangeRateParams {
+  fromCurrency?: string;
+  toCurrency?: string;
+}
+
+export interface ExchangeRateResponse {
+  id: number;
+  fromCurrency: string;
+  toCurrency: string;
+  rate: number;
+  sourceProvider: {
+    id: string;
+    name: string;
+  };
+  region?: string;
+  provider?: string;
+  markup?: number;
+  isActive: boolean;
+  createdAt: string;
+  cursor: string;
+}
+
 export class TakumiPayServiceError extends Error {
   constructor(
     message: string,
@@ -467,6 +489,19 @@ export class TakumiPayService {
   async getPurchaseStatusByRefId(refId: string): Promise<PurchaseStatusResponse> {
     return this.handleRequest(
       this.client.get(`purchases/ref/${refId}/status`).json<PurchaseStatusResponse>(),
+    );
+  }
+
+  async getLatestExchangeRate(params?: ExchangeRateParams): Promise<ExchangeRateResponse | null> {
+    const searchParams = params ? this.buildSearchParams({ ...params }) : undefined;
+    return this.handleRequest(
+      this.client.get('exchange-rates/latest', { searchParams }).json<ExchangeRateResponse | null>(),
+    );
+  }
+
+  async getExchangeRateById(id: number): Promise<ExchangeRateResponse> {
+    return this.handleRequest(
+      this.client.get(`exchange-rates/${id}`).json<ExchangeRateResponse>(),
     );
   }
 }
