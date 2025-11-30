@@ -930,42 +930,6 @@ export async function handleGetLatestBooking(
   }
 }
 
-export async function handleExecuteBooking(
-  args: unknown,
-  takumiPayService: TakumiPayService,
-): Promise<ToolResponse> {
-  try {
-    const { bookingId } = args as { bookingId: string };
-    
-    if (!bookingId) {
-      return createErrorResponse(new Error('Booking ID is required'));
-    }
-    
-    const booking = await takumiPayService.executeBooking(bookingId);
-    return createSuccessResponse(booking);
-  } catch (error) {
-    return createErrorResponse(error);
-  }
-}
-
-export async function handleCancelBooking(
-  args: unknown,
-  takumiPayService: TakumiPayService,
-): Promise<ToolResponse> {
-  try {
-    const { bookingId } = args as { bookingId: string };
-    
-    if (!bookingId) {
-      return createErrorResponse(new Error('Booking ID is required'));
-    }
-    
-    const booking = await takumiPayService.cancelBooking(bookingId);
-    return createSuccessResponse(booking);
-  } catch (error) {
-    return createErrorResponse(error);
-  }
-}
-
 export async function handleCreatePurchase(
   args: unknown,
   takumiPayService: TakumiPayService,
@@ -1149,14 +1113,6 @@ export function createTakumiPayToolHandlers(
 
   handlers.set('takumipay_get_latest_booking', (args) =>
     handleGetLatestBooking(args, takumiPayService),
-  );
-
-  handlers.set('takumipay_execute_booking', (args) =>
-    handleExecuteBooking(args, takumiPayService),
-  );
-
-  handlers.set('takumipay_cancel_booking', (args) =>
-    handleCancelBooking(args, takumiPayService),
   );
 
   handlers.set('takumipay_create_purchase', (args) =>

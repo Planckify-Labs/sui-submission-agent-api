@@ -488,18 +488,6 @@ export class TakumiPayService {
     );
   }
 
-  async executeBooking(bookingId: string): Promise<BookingResponse> {
-    return this.handleRequest(
-      this.client.put(`bookings/${bookingId}/execute`).json<BookingResponse>(),
-    );
-  }
-
-  async cancelBooking(bookingId: string): Promise<BookingResponse> {
-    return this.handleRequest(
-      this.client.put(`bookings/${bookingId}/cancel`).json<BookingResponse>(),
-    );
-  }
-
   async createPurchase(params: CreatePurchaseParams): Promise<PurchaseResponse> {
     return this.handleRequest(
       this.client.post('purchases', { json: params }).json<PurchaseResponse>(),
