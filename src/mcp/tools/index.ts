@@ -142,7 +142,6 @@ export {
   handleEstimateGas,
 };
 
-// Response transformer utilities for customizing tool responses
 export {
   transformResponse,
   createTransformedResponse,

@@ -407,8 +407,6 @@ export const cancelBookingTool: Tool = {
   },
 };
 
-// ==================== Purchase Tools ====================
-
 export const createPurchaseTool: Tool = {
   name: 'takumipay_create_purchase',
   description: 'Create a purchase after blockchain payment verification. This triggers the vendor fulfillment process.',
@@ -553,21 +551,17 @@ export const takumiPayProductTools: Tool[] = [
   searchVariantsTool,
   getProductInputFieldsTool,
   getProductPricesTool,
-  // Booking tools
   createBookingTool,
   getWalletBookingsTool,
   getLatestBookingTool,
   executeBookingTool,
   cancelBookingTool,
-  // Purchase tools
   createPurchaseTool,
   getPurchasesTool,
   searchPurchasesTool,
   getPurchaseByIdTool,
   getPurchaseStatusByRefIdTool,
 ];
-
-// ==================== Handler Functions ====================
 
 function createErrorResponse(error: unknown): ToolResponse {
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -604,7 +598,6 @@ export async function handleSearchProducts(
       cursor?: string;
       take?: number;
     }) ?? {};
-    // Never pass vendor-related params even if somehow provided
     const products = await takumiPayService.searchProducts({
       query,
       name,
@@ -821,8 +814,6 @@ export async function handleGetProductPrices(
   }
 }
 
-// ==================== Booking Handlers ====================
-
 export async function handleCreateBooking(
   args: unknown,
   takumiPayService: TakumiPayService,
@@ -846,7 +837,6 @@ export async function handleCreateBooking(
     }
     
     const booking = await takumiPayService.createBooking(params);
-    // Use transformed response to reduce token usage
     return createTransformedResponse(booking, 'takumipay_create_booking', responseConfig);
   } catch (error) {
     return createErrorResponse(error);
@@ -914,7 +904,6 @@ export async function handleCreatePurchase(
     }
     
     const purchase = await takumiPayService.createPurchase(params);
-    // Use transformed response to reduce token usage
     return createTransformedResponse(purchase, 'takumipay_create_purchase', responseConfig);
   } catch (error) {
     return createErrorResponse(error);
@@ -949,7 +938,6 @@ export async function handleSearchPurchases(
       cursor?: string;
       take?: number;
     }) ?? {};
-    // Never pass vendorId even if somehow provided
     const purchases = await takumiPayService.searchPurchases({
       userId,
       transactionId,
@@ -977,7 +965,6 @@ export async function handleGetPurchaseById(
       return createErrorResponse(new Error('Purchase ID is required'));
     }
     
-    // Never include vendor response in AI context
     const purchase = await takumiPayService.getPurchaseById(id, false);
     return createTransformedResponse(purchase, 'takumipay_get_purchase_by_id');
   } catch (error) {
@@ -998,7 +985,6 @@ export async function handleGetPurchaseStatusByRefId(
     }
     
     const status = await takumiPayService.getPurchaseStatusByRefId(refId);
-    // Use transformed response to reduce token usage
     return createTransformedResponse(status, 'takumipay_get_purchase_status_by_ref_id', responseConfig);
   } catch (error) {
     return createErrorResponse(error);
