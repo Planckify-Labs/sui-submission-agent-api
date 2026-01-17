@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { anthropic } from '@ai-sdk/anthropic'
+import { createOpenAI } from '@ai-sdk/openai'
 import { convertToModelMessages, stepCountIs, streamText, UIMessage } from 'ai'
 import { MCPClientService } from './mcp-client.service'
 
@@ -14,12 +14,17 @@ export class ChatService {
   ) {}
 
   async streamChatResponse(messages: UIMessage[]) {
-    const apiKey = this.configService.get<string>('ANTHROPIC_API_KEY')
+    const apiKey = this.configService.get<string>('KIMI_K2_API_KEY')
     if (!apiKey) {
       throw new Error(
-        'API key not configured. Please set ANTHROPIC_API_KEY in your environment.',
+        'API key not configured. Please set KIMI_K2_API_KEY in your environment.',
       )
     }
+
+    const kimi = createOpenAI({
+      apiKey,
+      baseURL: 'https://api.moonshot.ai/v1',
+    })
 
     let tools = {}
     try {
@@ -30,8 +35,8 @@ export class ChatService {
     }
 
     const result = streamText({
-      model: anthropic('claude-haiku-4-5-20251001'),
-      messages: convertToModelMessages(messages),
+      model: kimi.chat('kimi-k2-0711-preview'),
+      messages: await convertToModelMessages(messages),
       tools,
       maxRetries: 2,
       stopWhen: stepCountIs(5)

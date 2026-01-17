@@ -21,15 +21,15 @@
     "test:mcp": "bash test-mcp.sh"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.42",
     "@ai-sdk/mcp": "^0.0.10",
+    "@ai-sdk/openai": "^3.0.12",
     "@modelcontextprotocol/sdk": "^1.22.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-fastify": "^11.1.8",
-    "ai": "^5.0.89",
+    "ai": "^6.0.39",
     "dotenv": "^17.2.3",
     "ky": "^1.14.0",
     "reflect-metadata": "^0.2.2",
