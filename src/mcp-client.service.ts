@@ -32,6 +32,7 @@ export class MCPClientService implements OnModuleInit, OnModuleDestroy {
       const transport = new Experimental_StdioMCPTransport({
         command: config.command,
         args: config.args,
+        env: process.env as Record<string, string>,
       });
 
       this.client = await createMCPClient({ transport });
