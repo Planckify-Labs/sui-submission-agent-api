@@ -261,7 +261,7 @@ describe('ChatService agent loop', () => {
 
     const toolMsg = session.messages
       .filter((m) => m.role === 'tool')
-      .at(-1) as { content: Array<{ output: { value: AgentToolResult } }> }
+      .at(-1) as unknown as { content: Array<{ output: { value: AgentToolResult } }> }
     expect(toolMsg.content[0].output.value).toEqual({
       status: 'approved_but_failed',
       error: 'nonce too low',
@@ -299,7 +299,7 @@ describe('ChatService agent loop', () => {
 
     const toolMsg = session.messages
       .filter((m) => m.role === 'tool')
-      .at(-1) as { content: Array<{ output: { value: AgentToolResult } }> }
+      .at(-1) as unknown as { content: Array<{ output: { value: AgentToolResult } }> }
     expect(toolMsg.content[0].output.value).toEqual({
       status: 'rejected',
       reason: 'user_declined',
