@@ -102,7 +102,7 @@ describe('ChatController', () => {
     return app.inject({
       method: 'POST',
       url,
-      payload: body as Parameters<typeof app.inject>[0]['payload'],
+      payload: body as unknown as string,
       headers: {
         'content-type': 'application/json',
         ...headers,
