@@ -33,7 +33,7 @@ $ pnpm install
 
 ## API authentication
 
-Set the `CHAT_API_KEY` environment variable alongside `ANTHROPIC_API_KEY` (for example in `.env`) and include the same value in every request via the `x-api-key` header, `Authorization: Bearer <key>` header, or the `secrectApiKey` query/body parameter. Requests missing the key or using the wrong value are rejected with `401 Unauthorized`.
+Set the `CHAT_API_KEY` environment variable alongside `KIMI_K2_API_KEY` (for example in `.env`) and include the same value in every request via the `x-api-key` header, `Authorization: Bearer <key>` header, or the `secrectApiKey` query/body parameter. Requests missing the key or using the wrong value are rejected with `401 Unauthorized`.
 
 ## Compile and run the project
 

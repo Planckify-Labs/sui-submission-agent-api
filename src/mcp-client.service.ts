@@ -28,11 +28,21 @@ export class MCPClientService implements OnModuleInit, OnModuleDestroy {
   async connect(config: StdioMCPClientConfig): Promise<void> {
     try {
       this.logger.log(`Connecting to MCP server: ${config.command} ${config.args.join(' ')}`);
-      
+
+      // The internal MCP subprocess only serves off-chain TakumiPay tools.
+      // All blockchain operations are routed to the mobile client via the
+      // agent loop, so the server has no wallet/private-key env vars to
+      // forward.
+      const subprocessEnv: Record<string, string> = {};
+      for (const [key, value] of Object.entries(process.env)) {
+        if (value === undefined) continue;
+        subprocessEnv[key] = value;
+      }
+
       const transport = new Experimental_StdioMCPTransport({
         command: config.command,
         args: config.args,
-        env: process.env as Record<string, string>,
+        env: subprocessEnv,
       });
 
       this.client = await createMCPClient({ transport });
