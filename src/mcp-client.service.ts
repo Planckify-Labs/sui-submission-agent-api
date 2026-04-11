@@ -29,10 +29,11 @@ export class MCPClientService implements OnModuleInit, OnModuleDestroy {
     try {
       this.logger.log(`Connecting to MCP server: ${config.command} ${config.args.join(' ')}`);
 
-      // The internal MCP subprocess only serves off-chain TakumiPay tools.
-      // All blockchain operations are routed to the mobile client via the
-      // agent loop, so the server has no wallet/private-key env vars to
-      // forward.
+      // After protocol v1.1 §11 the internal MCP subprocess is a bare
+      // diagnostic template (`owner`, `calculator`) — it has no domain
+      // handlers and no credentialed env vars to read. We still forward
+      // the parent process env so future server-local tools can pick up
+      // anything they need without re-plumbing this transport.
       const subprocessEnv: Record<string, string> = {};
       for (const [key, value] of Object.entries(process.env)) {
         if (value === undefined) continue;

@@ -66,8 +66,30 @@ export interface DoneData {
   usage?: { prompt_tokens: number; completion_tokens: number }
 }
 
+/**
+ * Enumerated error codes — see protocol_v1.1.md §9.
+ *
+ * Split into two groups: SSE-level codes arrive as `event: error` frames on
+ * the chat stream; HTTP-level codes arrive as JSON response bodies from the
+ * controller (4xx) before any stream is opened.
+ */
+export type SseErrorCode =
+  | 'model_error' // LLM API call failed (retryable)
+  | 'max_iterations' // agent loop cap reached (retryable)
+  | 'tool_timeout' // mobile didn't respond in time (retryable)
+  | 'session_error' // internal session sync failure (non-retryable)
+  | 'internal_error' // uncaught server exception (non-retryable)
+
+export type HttpErrorCode =
+  | 'missing_wallet_context' // 400 — new session without wallet_context
+  | 'invalid_request' // 400 — body schema validation failed
+  | 'session_expired' // 404 — unknown or evicted session
+  | 'tool_call_already_resolved' // 409 — duplicate tool response
+
+export type ErrorCode = SseErrorCode | HttpErrorCode
+
 export interface ErrorData {
-  code: string
+  code: SseErrorCode
   message: string
   retryable: boolean
   tool_call_id?: string

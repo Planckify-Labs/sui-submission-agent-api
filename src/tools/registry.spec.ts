@@ -57,7 +57,7 @@ describe('TOOL_REGISTRY', () => {
     const validCategories: ToolCategory[] = [
       'blockchain_read',
       'blockchain_write',
-      'takumipay',
+      'points',
       'utility',
     ];
     const validExecutors: ToolExecutor[] = ['server', 'mobile'];
@@ -67,6 +67,94 @@ describe('TOOL_REGISTRY', () => {
       expect(validCategories).toContain(meta.category);
       expect(validExecutors).toContain(meta.executor);
       expect(validCapabilities).toContain(meta.capability);
+    }
+  });
+
+  it('every mobile tool has a concrete (non-stub) inputSchema', () => {
+    const mobileTools = Object.values(TOOL_REGISTRY).filter(
+      (t) => t.executor === 'mobile',
+    );
+    expect(mobileTools.length).toBeGreaterThan(0);
+
+    for (const meta of mobileTools) {
+      expect(meta.inputSchema).toBeDefined();
+      const schema = meta.inputSchema!;
+      expect(schema.type).toBe('object');
+      expect(Array.isArray(schema.required)).toBe(true);
+      expect(typeof schema.properties).toBe('object');
+      // A "stub" looked like { properties: {}, additionalProperties: true }
+      // with no `required` entries. Non-chain-specific reads (e.g.
+      // get_wallet_address, get_supported_chains) legitimately have
+      // `required: []` and empty properties, so instead of banning both,
+      // we ban the stub combo: open + permissive + empty.
+      const isStub =
+        Object.keys(schema.properties).length === 0 &&
+        schema.additionalProperties === true;
+      expect(isStub).toBe(false);
+    }
+  });
+
+  it('every multi-chain mobile tool requires chain_id', () => {
+    const multiChainTools = [
+      'get_balance',
+      'get_wallet_balance',
+      'read_contract',
+      'get_transaction',
+      'estimate_gas',
+      'send_native_token',
+      'transfer_erc20',
+      'write_contract',
+      'approve_erc20',
+    ];
+    for (const name of multiChainTools) {
+      const meta = TOOL_REGISTRY[name];
+      expect(meta).toBeDefined();
+      expect(meta.inputSchema).toBeDefined();
+      const schema = meta.inputSchema!;
+      expect(schema.required).toContain('chain_id');
+      expect(schema.properties.chain_id).toBeDefined();
+      expect(schema.properties.chain_id.type).toBe('integer');
+    }
+  });
+
+  it('wei amount fields are typed as base-10 strings', () => {
+    const weiFields: Array<[string, string]> = [
+      ['send_native_token', 'value_wei'],
+      ['estimate_gas', 'value_wei'],
+      ['transfer_erc20', 'amount_wei'],
+      ['approve_erc20', 'amount_wei'],
+    ];
+    for (const [toolName, field] of weiFields) {
+      const prop = TOOL_REGISTRY[toolName].inputSchema!.properties[field];
+      expect(prop).toBeDefined();
+      expect(prop.type).toBe('string');
+      expect(prop.pattern).toBe('^[0-9]+$');
+    }
+  });
+
+  it('address fields enforce the 0x40-hex pattern', () => {
+    const addrFields: Array<[string, string]> = [
+      ['send_native_token', 'to'],
+      ['transfer_erc20', 'to'],
+      ['transfer_erc20', 'contract_address'],
+      ['approve_erc20', 'spender'],
+      ['approve_erc20', 'contract_address'],
+      ['read_contract', 'contract_address'],
+      ['write_contract', 'contract_address'],
+      ['estimate_gas', 'to'],
+    ];
+    for (const [toolName, field] of addrFields) {
+      const prop = TOOL_REGISTRY[toolName].inputSchema!.properties[field];
+      expect(prop).toBeDefined();
+      expect(prop.type).toBe('string');
+      expect(prop.pattern).toBe('^0x[0-9a-fA-F]{40}$');
+    }
+  });
+
+  it('tools with no chain-specific inputs have required: []', () => {
+    for (const name of ['get_wallet_address', 'get_supported_chains']) {
+      const schema = TOOL_REGISTRY[name].inputSchema!;
+      expect(schema.required).toEqual([]);
     }
   });
 
@@ -81,6 +169,7 @@ describe('TOOL_REGISTRY', () => {
       { name: 'get_transaction', category: 'blockchain_read', executor: 'mobile', capability: 'read' },
       { name: 'get_wallet_address', category: 'blockchain_read', executor: 'mobile', capability: 'read' },
       { name: 'get_supported_chains', category: 'blockchain_read', executor: 'mobile', capability: 'read' },
+      { name: 'get_wallet_tokens', category: 'blockchain_read', executor: 'mobile', capability: 'read' },
 
       // Mobile / blockchain_read — simulate
       { name: 'estimate_gas', category: 'blockchain_read', executor: 'mobile', capability: 'simulate' },
@@ -91,19 +180,24 @@ describe('TOOL_REGISTRY', () => {
       { name: 'write_contract', category: 'blockchain_write', executor: 'mobile', capability: 'write' },
       { name: 'approve_erc20', category: 'blockchain_write', executor: 'mobile', capability: 'write' },
 
-      // Server / takumipay — read
-      { name: 'get_products', category: 'takumipay', executor: 'server', capability: 'read' },
-      { name: 'search_products', category: 'takumipay', executor: 'server', capability: 'read' },
-      { name: 'get_product_prices', category: 'takumipay', executor: 'server', capability: 'read' },
-      { name: 'get_latest_exchange_rate', category: 'takumipay', executor: 'server', capability: 'read' },
+      // Mobile / points — read
+      { name: 'get_redemption_categories', category: 'points', executor: 'mobile', capability: 'read' },
+      { name: 'get_redemption_catalog', category: 'points', executor: 'mobile', capability: 'read' },
+      { name: 'search_redemption_catalog', category: 'points', executor: 'mobile', capability: 'read' },
+      { name: 'get_product_details', category: 'points', executor: 'mobile', capability: 'read' },
+      { name: 'get_product_input_fields', category: 'points', executor: 'mobile', capability: 'read' },
+      { name: 'get_points_price', category: 'points', executor: 'mobile', capability: 'read' },
+      { name: 'get_points_balance', category: 'points', executor: 'mobile', capability: 'read' },
+      { name: 'get_points_history', category: 'points', executor: 'mobile', capability: 'read' },
+      { name: 'get_redemption_status', category: 'points', executor: 'mobile', capability: 'read' },
+      { name: 'get_redemption_history', category: 'points', executor: 'mobile', capability: 'read' },
 
-      // Server / takumipay — simulate
-      { name: 'create_booking', category: 'takumipay', executor: 'server', capability: 'simulate' },
+      // Mobile / points — write
+      { name: 'deposit_points', category: 'points', executor: 'mobile', capability: 'write' },
+      { name: 'execute_redemption', category: 'points', executor: 'mobile', capability: 'write' },
 
-      // Mobile / takumipay — write
-      { name: 'execute_booking', category: 'takumipay', executor: 'mobile', capability: 'write' },
-      { name: 'cancel_booking', category: 'takumipay', executor: 'mobile', capability: 'write' },
-      { name: 'create_purchase', category: 'takumipay', executor: 'mobile', capability: 'write' },
+      // Mobile / points — simulate
+      { name: 'request_authentication', category: 'points', executor: 'mobile', capability: 'simulate' },
     ];
 
     for (const expectedMeta of expected) {

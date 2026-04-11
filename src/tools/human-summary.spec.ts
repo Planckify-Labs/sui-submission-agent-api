@@ -51,41 +51,29 @@ describe('buildHumanSummary', () => {
     ).toBe('Approve 0xDeFi…ef to spend up to 100 USDC');
   });
 
-  it('create_booking → preview line with product and formatted price', () => {
+  it('deposit_points → token amount + symbol + expected points', () => {
     expect(
-      buildHumanSummary('create_booking', {
-        product_name: 'Telkomsel 50K',
-        price_formatted: 'Rp 50.000',
+      buildHumanSummary('deposit_points', {
+        token_symbol: 'IDRX',
+        token_amount: '100',
+        expected_points: '1000',
       }),
-    ).toBe('Preview: Telkomsel 50K — Rp 50.000 (not yet executed)');
+    ).toBe('Deposit 100 IDRX for ~1000 points');
   });
 
-  it('execute_booking → payment line with product and booking id', () => {
+  it('execute_redemption → product name + points cost', () => {
     expect(
-      buildHumanSummary('execute_booking', {
-        price_formatted: 'Rp 50.000',
+      buildHumanSummary('execute_redemption', {
         product_name: 'Telkomsel 50K',
-        booking_id: 'BK-4821',
+        points_cost: '5000',
       }),
-    ).toBe('Pay Rp 50.000 for Telkomsel 50K (booking #BK-4821)');
+    ).toBe('Redeem Telkomsel 50K for 5000 points');
   });
 
-  it('cancel_booking → cancellation line with booking id and product', () => {
-    expect(
-      buildHumanSummary('cancel_booking', {
-        booking_id: 'BK-4821',
-        product_name: 'Telkomsel 50K',
-      }),
-    ).toBe('Cancel booking #BK-4821 (Telkomsel 50K)');
-  });
-
-  it('create_purchase → purchase line with product and formatted price', () => {
-    expect(
-      buildHumanSummary('create_purchase', {
-        product_name: 'Telkomsel 50K',
-        price_formatted: 'Rp 50.000',
-      }),
-    ).toBe('Purchase Telkomsel 50K for Rp 50.000');
+  it('request_authentication → static "Log in to TakumiPay" label', () => {
+    expect(buildHumanSummary('request_authentication', {})).toBe(
+      'Log in to TakumiPay',
+    );
   });
 
   it('default branch → "Execute <name>" for unknown tools', () => {

@@ -35,7 +35,7 @@ describe('AGENT_SYSTEM_PROMPT', () => {
       'ALWAYS call estimate_gas before any blockchain_write tool call',
     );
     expect(AGENT_SYSTEM_PROMPT).toContain(
-      'ALWAYS call create_booking before execute_booking',
+      'ALWAYS call get_points_balance before execute_redemption',
     );
     expect(AGENT_SYSTEM_PROMPT).toContain('NEVER assume wallet state');
   });
@@ -116,6 +116,34 @@ describe('buildWalletContextPrompt', () => {
     expect(prompt.startsWith('## Connected Wallet')).toBe(true);
     // trim() also strips the trailing newline.
     expect(prompt.endsWith('\n')).toBe(false);
+  });
+
+  it('renders the unauthenticated points-service line when points_authenticated is absent', () => {
+    const prompt = buildWalletContextPrompt(fullCtx);
+    expect(prompt).toContain('Points service: NOT authenticated');
+    expect(prompt).toContain('request_authentication');
+    expect(prompt).not.toContain('Points service: authenticated —');
+  });
+
+  it('renders the unauthenticated points-service line when points_authenticated is false', () => {
+    const prompt = buildWalletContextPrompt({
+      ...fullCtx,
+      points_authenticated: false,
+    });
+    expect(prompt).toContain('Points service: NOT authenticated');
+    expect(prompt).toContain('request_authentication');
+  });
+
+  it('renders the authenticated points-service line when points_authenticated is true', () => {
+    const prompt = buildWalletContextPrompt({
+      ...fullCtx,
+      points_authenticated: true,
+    });
+    expect(prompt).toContain(
+      'Points service: authenticated — you MAY call auth-required points and redemption tools directly.',
+    );
+    expect(prompt).not.toContain('Points service: NOT authenticated');
+    expect(prompt).not.toContain('request_authentication');
   });
 });
 

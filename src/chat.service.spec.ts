@@ -110,7 +110,6 @@ describe('ChatService agent loop', () => {
   let moduleRef: TestingModule
   let chatService: ChatService
   let sessionService: SessionService
-  let mcp: StubMCPClientService
 
   beforeEach(async () => {
     moduleRef = await Test.createTestingModule({
@@ -131,7 +130,6 @@ describe('ChatService agent loop', () => {
 
     chatService = moduleRef.get(ChatService)
     sessionService = moduleRef.get(SessionService)
-    mcp = moduleRef.get(MCPClientService) as unknown as StubMCPClientService
 
     // Replace the real `streamText` with the scripted runner that
     // individual tests configure via `chatService.setModelRunner`. Also
@@ -173,49 +171,13 @@ describe('ChatService agent loop', () => {
     expect(session.state).toBe('idle')
   })
 
-  it('executes a server tool without emitting tool_pending', async () => {
-    const rawResult = { products: [{ id: 'p1', name: 'Gift card' }] }
-    mcp.tools = {
-      get_products: {
-        description: 'List TakumiPay products',
-        inputSchema: {
-          jsonSchema: { type: 'object', properties: {} },
-          validate: () => ({ success: true, value: {} }),
-        },
-        execute: async () => rawResult,
-      } as unknown as ToolSet[string],
-    }
-
-    chatService.setModelRunner(
-      makeScriptedRunner([
-        {
-          toolCalls: [
-            {
-              toolCallId: 'tc-server-1',
-              toolName: 'get_products',
-              input: {},
-            },
-          ],
-        },
-        { text: 'Here are the products.' },
-      ]),
-    )
-
-    const session = seedSession('list products')
-    const events = await collect(chatService.agentLoop(session))
-
-    expect(events.some((e) => e.event === 'tool_pending')).toBe(false)
-
-    const executed = events.find((e) => e.event === 'tool_executed')
-    expect(executed).toBeDefined()
-    if (executed?.event === 'tool_executed') {
-      expect(executed.data.tool_call_id).toBe('tc-server-1')
-      expect(executed.data.name).toBe('get_products')
-    }
-
-    const done = events.find((e) => e.event === 'done')
-    expect(done).toBeDefined()
-  })
+  // NOTE: After protocol v1.1 §11 the TOOL_REGISTRY no longer contains any
+  // `executor: "server"` tools — every TakumiPay handler was removed from
+  // the MCP subprocess and re-added as mobile-executed points tools. The
+  // server-tool branch of `agentLoop` is still exercised by tools dispatched
+  // through the MCP client (e.g. the `owner`/`calculator` diagnostic tools),
+  // but no such tool is registered in TOOL_REGISTRY, so the old
+  // "executes a server tool without emitting tool_pending" test was dropped.
 
   it('emits tool_pending for a mobile tool and resumes after tool_result', async () => {
     chatService.setModelRunner(

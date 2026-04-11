@@ -20,6 +20,10 @@ export const walletContextSchema = z.object({
   chain_name: z.string().min(1),
   chain_symbol: z.string().min(1),
   label: z.string().optional(),
+  // v1.1 (§13): whether the mobile currently holds a non-expired
+  // points-service JWT for this wallet. Optional for backwards
+  // compatibility with pre-v1.1 mobile clients.
+  points_authenticated: z.boolean().optional(),
 })
 
 /**

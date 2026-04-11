@@ -35,6 +35,42 @@ $ pnpm install
 
 Set the `CHAT_API_KEY` environment variable alongside `KIMI_K2_API_KEY` (for example in `.env`) and include the same value in every request via the `x-api-key` header, `Authorization: Bearer <key>` header, or the `secrectApiKey` query/body parameter. Requests missing the key or using the wrong value are rejected with `401 Unauthorized`.
 
+## SSE framing (worked example)
+
+The `POST /chat` endpoint streams responses as standard `text/event-stream`
+frames. Each event is a block terminated by a blank line, containing exactly
+one `event: <name>` line and one `data: <json>` line whose payload is the JSON
+body for that event's `data` type. Clients MUST NOT expect a wrapped
+`{event, data}` JSON object on the `data:` line — the event name lives on the
+`event:` line only. See `protocol_v1.1.md` §2 "SSE framing is standard, not
+wrapped".
+
+Worked example of a turn that checks a wallet balance:
+
+```
+event: status
+data: {"message":"Checking balance…"}
+
+event: tool_pending
+data: {"session_id":"9434bf6f-1f3a-4c2a-9e7b-3a0f8b5c1e22","tool_call_id":"t1","name":"get_wallet_balance","input":{"chain_id":42161},"meta":{}}
+
+event: done
+data: {"session_id":"9434bf6f-1f3a-4c2a-9e7b-3a0f8b5c1e22","content":"Your balance is 1.5 ETH."}
+```
+
+### session_id is server-assigned
+
+The `session_id` that appears in `tool_pending` and `done` (and any future
+event carrying one) is **the canonical id minted by the server** via
+`SessionService.create()`. If the mobile supplies a `session_id` in the
+initial `POST /chat` body that does not match an existing session, the
+server creates a new session with its own id and ignores the supplied value.
+
+The mobile MUST treat the first `session_id` observed on any inbound SSE
+payload as authoritative and use it for every subsequent
+`POST /chat/:sessionId/respond` call and reconnect — not the id it originally
+supplied. See `protocol_v1.1.md` §1 "Session identity is server-assigned".
+
 ## Compile and run the project
 
 ```bash

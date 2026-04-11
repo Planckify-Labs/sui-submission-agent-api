@@ -7,6 +7,12 @@ import {
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 
+// SECURITY / LOGGING POLICY — see protocol_v1.1.md §14 Guard F.
+// Never log raw request headers, body, query, or supplied API keys.
+// The request body carries `messages`, tool args, and `wallet_context`
+// (PII: voucher codes, balances, redemption details). Headers carry the
+// real API key. Log only method + path + auth_outcome.
+
 type RequestWithHeaders = {
   method?: string
   url?: string
@@ -33,21 +39,18 @@ export class ApiKeyGuard implements CanActivate {
     }
 
     if (!providedKey) {
-      const snapshot = this.serializeRequest(request)
+      // Redacted: do NOT log headers / body / query — they contain
+      // session messages, wallet_context, and the real API key.
       this.logger.warn(
-        `Missing API key. Raw request snapshot: ${snapshot}`,
+        `Auth failed: missing API key (${this.describeRequest(request)})`,
       )
-      console.warn(`[ApiKeyGuard] Missing API key. Raw request: ${snapshot}`)
       throw new UnauthorizedException('api key needed!')
     }
 
     if (providedKey !== expectedKey) {
-      const snapshot = this.serializeRequest(request)
+      // Redacted: never echo the supplied key or the request body.
       this.logger.warn(
-        `Invalid API key "${providedKey}". Raw request snapshot: ${snapshot}`,
-      )
-      console.warn(
-        `[ApiKeyGuard] Invalid API key "${providedKey}". Raw request: ${snapshot}`,
+        `Auth failed: invalid API key (${this.describeRequest(request)})`,
       )
       throw new UnauthorizedException('Invalid API key.')
     }
@@ -111,23 +114,14 @@ export class ApiKeyGuard implements CanActivate {
     return typeof value === 'string' ? value : undefined
   }
 
-  private serializeRequest(request: RequestWithHeaders): string {
-    try {
-      return JSON.stringify(
-        {
-          method: request.method,
-          url: request.url,
-          headers: request.headers,
-          body: request.body,
-        },
-        null,
-        2,
-      )
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown serialization error'
-      this.logger.error(`Failed to serialize request: ${message}`)
-      return '[unserializable request]'
-    }
+  /**
+   * Build a redacted one-liner describing the request for audit logs.
+   * Intentionally omits headers, body, query, and any credential material —
+   * see protocol_v1.1.md §14 Guard F.
+   */
+  private describeRequest(request: RequestWithHeaders): string {
+    const method = request.method ?? 'UNKNOWN'
+    const url = typeof request.url === 'string' ? request.url.split('?')[0] : 'UNKNOWN'
+    return `${method} ${url}`
   }
 }

@@ -1,68 +1,28 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { TakumiPayService } from '../../takumipay';
-
-import { takumiPayProductTools, createTakumiPayToolHandlers } from './products.tool';
-import { exchangeRateTools, createExchangeRateToolHandlers } from './exchange-rate.tool';
-import { tokenContractTools, createTokenContractToolHandlers } from './token-contract.tool';
-
-export { takumiPayProductTools, createTakumiPayToolHandlers };
-export { exchangeRateTools, createExchangeRateToolHandlers };
-export { tokenContractTools, createTokenContractToolHandlers };
+/**
+ * MCP subprocess tool handler registry.
+ *
+ * Post protocol v1.1 §11: the MCP subprocess is a bare template. All
+ * blockchain and points/redemption tools execute on the mobile client
+ * via the mobile-executor protocol, not here. This factory only exists
+ * so the subprocess can wire additional diagnostic / server-local tools
+ * in the future without re-plumbing the server bootstrap.
+ */
 
 export type ToolResponse = {
   content: [{ type: 'text'; text: string }];
   isError?: boolean;
 };
 
-export type ToolHandler = (
-  args: unknown,
-  services: {
-    takumiPayService?: TakumiPayService | null;
-  },
-) => Promise<ToolResponse>;
+export type ToolHandler = (args: unknown) => Promise<ToolResponse>;
 
 /**
- * TakumiPay-only tool set exposed via the internal MCP subprocess.
+ * Build the MCP subprocess' dynamic tool handler map.
  *
- * All blockchain / wallet tools have been moved to the mobile executor
- * (see `src/tools/registry.ts` and the agent loop in `src/chat.service.ts`).
- * The MCP subprocess only serves off-chain TakumiPay tools now.
+ * Currently empty — the `owner` and `calculator` legacy tools in
+ * `src/mcp/server.ts` are handled inline there. This factory is retained
+ * as an extension point for future server-local tools that legitimately
+ * need to run in the subprocess (non-blockchain, non-user-credential).
  */
-export function createToolHandlers(services: {
-  takumiPayService?: TakumiPayService | null;
-}): Map<string, (args: unknown) => Promise<ToolResponse>> {
-  const { takumiPayService } = services;
-
-  const handlers = new Map<string, (args: unknown) => Promise<ToolResponse>>();
-
-  if (takumiPayService) {
-    const takumiPayHandlers = createTakumiPayToolHandlers(takumiPayService);
-    for (const [name, handler] of takumiPayHandlers) {
-      handlers.set(name, handler);
-    }
-
-    const exchangeRateHandlers = createExchangeRateToolHandlers(takumiPayService);
-    for (const [name, handler] of exchangeRateHandlers) {
-      handlers.set(name, handler);
-    }
-
-    const tokenContractHandlers = createTokenContractToolHandlers(takumiPayService);
-    for (const [name, handler] of tokenContractHandlers) {
-      handlers.set(name, handler);
-    }
-  }
-
-  return handlers;
+export function createToolHandlers(): Map<string, ToolHandler> {
+  return new Map<string, ToolHandler>();
 }
-
-export {
-  transformResponse,
-  createTransformedResponse,
-  setToolConfig,
-  getToolConfig,
-  addGlobalExclusions,
-  getResponseStats,
-  type ResponseProfile,
-  type FieldConfig,
-  type ToolResponseConfig,
-} from './response-transformer';

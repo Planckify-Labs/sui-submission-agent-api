@@ -320,6 +320,43 @@ describe('ChatController', () => {
       await Promise.allSettled([pendingA, pendingB])
     })
 
+    it('refreshes wallet_context and chain_id on an existing session when a new wallet_context is posted', async () => {
+      const session = sessionService.create(wallet)
+      expect(session.chain_id).toBe(137)
+      expect(session.wallet_context.chain_id).toBe(137)
+
+      const newWalletContext: WalletContext = {
+        address: '0x2222222222222222222222222222222222222222',
+        chain_id: 8453,
+        chain_name: 'Base',
+        chain_symbol: 'ETH',
+      }
+
+      // Drive a fresh turn with messages so the controller takes the
+      // "session exists + non-empty messages" branch. The agent loop will
+      // ultimately fail (no KIMI_K2_API_KEY in tests) and emit an error
+      // SSE event, but the wallet_context mutation happens synchronously
+      // before streaming begins — which is the behaviour under test.
+      const res = await httpPost(
+        '/chat',
+        {
+          session_id: session.id,
+          wallet_context: newWalletContext,
+          messages: [{ role: 'user', content: 'hello after chain switch' }],
+        },
+        { 'x-api-key': TEST_API_KEY },
+      )
+      expect(res.statusCode).toBe(200)
+
+      const refreshed = sessionService.get(session.id)
+      expect(refreshed).toBeDefined()
+      expect(refreshed?.chain_id).toBe(8453)
+      expect(refreshed?.wallet_context).toEqual(newWalletContext)
+      // Original wallet_address binding on the session is not touched
+      // by the refresh path — only wallet_context and chain_id.
+      expect(refreshed?.wallet_address).toBe(wallet.address)
+    })
+
     it('POST /chat with session_id + empty messages hits the reconnect branch', async () => {
       const session = sessionService.create(wallet)
       const payload = makePayload(session.id, 'tc-http')

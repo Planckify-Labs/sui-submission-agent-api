@@ -1,3 +1,9 @@
+// LOGGING POLICY — see protocol_v1.1.md §14 Guard F.
+// Emit session_id + event_type / tool_name + timing/status ONLY.
+// NEVER log `session.messages`, tool call args, tool results, or
+// `wallet_context` payloads — they carry user PII (voucher codes,
+// balances, redemption details). Error `.message` strings and stack
+// traces are allowed; request/response payloads are not.
 import { randomUUID } from 'node:crypto'
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -28,7 +34,6 @@ import {
   type AgentEvent,
   type AgentToolResult,
 } from './chat.events'
-import { transformResponse } from './mcp/tools/response-transformer'
 
 /**
  * Signature the agent loop needs from the language model. The real path
@@ -149,9 +154,11 @@ export class ChatService {
     const walletCtx = session.wallet_context
     const systemPrompt = buildSystemPrompt(walletCtx)
 
-    // Fetch MCP tools once per turn. The MCP subprocess now only exposes
-    // off-chain TakumiPay handlers; blockchain tools live in the central
-    // registry and are routed to the mobile executor.
+    // Fetch MCP tools once per turn. After protocol v1.1 §11 the MCP
+    // subprocess is a bare diagnostic template (`owner`, `calculator`)
+    // and exposes no agent-callable handlers — `mcpTools` is normally
+    // empty. Every tool call goes through the central registry and is
+    // routed to the mobile executor.
     let mcpTools: ToolSet = {}
     try {
       mcpTools = (await this.mcpClientService.getTools()) as ToolSet
@@ -166,8 +173,9 @@ export class ChatService {
     session.state = 'streaming'
 
     // Hard cap on loop iterations — defense against a pathological model
-    // that keeps emitting tool calls forever. The protocol does not bound
-    // this explicitly, but in practice 16 is well above any real turn.
+    // that keeps emitting tool calls forever. In practice 16 is well above
+    // any real turn; a breach emits a retryable `max_iterations` error.
+    // MAX_ITERATIONS: hard cap on agent loop turns — see protocol_v1.1.md §7
     const MAX_ITERATIONS = 16
     let iterations = 0
 
@@ -635,16 +643,24 @@ export function buildAllTools(
       continue
     }
 
-    // Mobile tool — schema-only stub. The input shape is intentionally
-    // permissive because the canonical mobile schemas live in the mobile
-    // SDK tasks, not here.
-    out[name] = defineTool({
-      description: meta.description,
-      inputSchema: jsonSchema<Record<string, unknown>>({
+    // Mobile tool — forward the concrete `inputSchema` from the central
+    // registry so the LLM sees required parameters (`chain_id`, address
+    // patterns, base-10 `*_wei` strings). See protocol v1.1 §3. A tool
+    // missing an `inputSchema` is a registry bug; we fall back to a
+    // permissive stub so the loop still runs rather than hard-failing.
+    const schema =
+      meta.inputSchema ??
+      ({
         type: 'object',
         properties: {},
+        required: [],
         additionalProperties: true,
-      }),
+      } as const)
+    out[name] = defineTool({
+      description: meta.description,
+      inputSchema: jsonSchema<Record<string, unknown>>(
+        schema as unknown as Record<string, unknown>,
+      ),
     }) as Tool
   }
 
@@ -658,8 +674,8 @@ export function buildAllTools(
  */
 function progressLabel(meta: ToolMeta): string {
   switch (meta.category) {
-    case 'takumipay':
-      return 'Looking up TakumiPay…'
+    case 'points':
+      return 'Looking up points…'
     case 'blockchain_read':
       return 'Reading chain state…'
     case 'blockchain_write':
@@ -717,16 +733,14 @@ function transformForAgent(raw: unknown): unknown {
 }
 
 /**
- * Display-side filtering for `tool_executed`. Routes through the
- * existing `response-transformer` module so mobile sees the same slim
- * payload the MCP handlers already produce today.
+ * Display-side filtering for `tool_executed`. Previously routed through
+ * a domain-specific response-transformer; after protocol v1.1 §11 the
+ * server has no domain handlers — any remaining server tools are
+ * diagnostic only — so this is the identity. Kept as a seam so later
+ * tasks can diverge the agent-facing shape from the display-facing shape.
  */
-function transformForDisplay(toolName: string, raw: unknown): unknown {
-  try {
-    return transformResponse(raw, toolName)
-  } catch {
-    return raw
-  }
+function transformForDisplay(_toolName: string, raw: unknown): unknown {
+  return raw
 }
 
 /**

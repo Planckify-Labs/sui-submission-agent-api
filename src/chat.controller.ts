@@ -63,6 +63,12 @@ export class ChatController {
         })
       }
       session = this.sessionService.create(wallet_context as WalletContext)
+    } else if (wallet_context) {
+      // Refresh wallet_context on every turn so the system prompt tracks
+      // the live chain/wallet even if the user switches mid-conversation.
+      // See protocol_v1.1.md §5 and AGENT_PROTOCOL.md §8.2.
+      session.wallet_context = wallet_context as WalletContext
+      session.chain_id = (wallet_context as WalletContext).chain_id
     }
 
     for (const msg of messages) {

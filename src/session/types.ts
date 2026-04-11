@@ -19,6 +19,15 @@ export interface WalletContext {
   chain_name: string
   chain_symbol: string
   label?: string
+  /**
+   * Whether the mobile currently holds a non-expired points-service JWT
+   * for this wallet. Computed by the mobile at send time; the server
+   * never sees the JWT itself. See protocol_v1.1.md §13.
+   *
+   * Optional on the wire for backwards compatibility with pre-v1.1
+   * mobile clients — treated as `false` when absent.
+   */
+  points_authenticated?: boolean
 }
 
 /**

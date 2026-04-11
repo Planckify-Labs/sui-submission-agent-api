@@ -56,6 +56,13 @@ function createDeferred<T>(): Deferred<T> {
 // Redis (see `AGENT_PROTOCOL.md` §12). Deferreds cannot be serialized,
 // so cross-instance coordination requires a pub/sub channel that wakes
 // the holding instance when a `POST /chat/respond` lands on another.
+// SECURITY: `session.messages` is memory-only — never write to DB, cache,
+// or logs. May contain PII (voucher codes, balances, redemption details,
+// tool call args, tool results). See protocol_v1.1.md §14 Guard F.
+// The `sessions` Map below is the ONLY place session message history
+// lives; TTL eviction deletes from this in-memory Map only. Do NOT add
+// a Redis/Valkey backing store for messages — external caches may only
+// hold opaque session IDs for reconnect.
 @Injectable()
 export class SessionService {
   private readonly logger = new Logger(SessionService.name)
@@ -66,8 +73,11 @@ export class SessionService {
    */
   create(walletCtx: WalletContext): Session {
     const now = new Date()
+    // session_id is server-assigned — the mobile's supplied id is ignored.
+    // See protocol_v1.1.md §1 "Session identity is server-assigned".
+    const id = randomUUID()
     const session: Session = {
-      id: randomUUID(),
+      id,
       messages: [],
       wallet_address: walletCtx.address,
       chain_id: walletCtx.chain_id,

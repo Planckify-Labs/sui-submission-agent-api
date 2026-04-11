@@ -7,14 +7,17 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import {
-  createToolHandlers,
-  takumiPayProductTools,
-  exchangeRateTools,
-  tokenContractTools,
-  type ToolResponse,
-} from './tools/index';
-import { TakumiPayService, TakumiPayServiceError, createTakumiPayService } from '../takumipay';
+import { createToolHandlers, type ToolResponse } from './tools/index';
+
+/**
+ * Bare MCP subprocess template (protocol v1.1 §11).
+ *
+ * Every off-chain TakumiPay tool that used to live here has been moved
+ * to the mobile executor via the `points` registry category. This
+ * subprocess now only serves two diagnostic tools (`owner`, `calculator`)
+ * so operators can smoke-test the MCP transport without pulling in any
+ * domain dependencies.
+ */
 
 const OwnerToolInputSchema = z.object({});
 
@@ -59,18 +62,6 @@ const legacyTools: Tool[] = [
   },
 ];
 
-function getAvailableTools(options: { takumiPayAvailable: boolean }): Tool[] {
-  const tools: Tool[] = [...legacyTools];
-
-  if (options.takumiPayAvailable) {
-    tools.push(...takumiPayProductTools);
-    tools.push(...exchangeRateTools);
-    tools.push(...tokenContractTools);
-  }
-
-  return tools;
-}
-
 function handleOwnerTool(): { owner: string } {
   return { owner: 'satriaali' };
 }
@@ -100,33 +91,9 @@ function handleCalculatorTool(input: z.infer<typeof CalculatorToolInputSchema>):
   return { result };
 }
 
-function initializeTakumiPayService(): TakumiPayService | null {
-  try {
-    const service = createTakumiPayService();
-    console.error('TakumiPay service initialized successfully');
-    return service;
-  } catch (error) {
-    if (error instanceof TakumiPayServiceError) {
-      console.error(`Warning: TakumiPay service not initialized - ${error.message}`);
-      console.error('TakumiPay product tools will not be available');
-    } else {
-      throw error;
-    }
-  }
-  return null;
-}
-
-
 async function main() {
-  const takumiPayService = initializeTakumiPayService();
-
-  const tools = getAvailableTools({
-    takumiPayAvailable: takumiPayService !== null,
-  });
-
-  const allHandlers = createToolHandlers({
-    takumiPayService,
-  });
+  const tools: Tool[] = [...legacyTools];
+  const allHandlers = createToolHandlers();
 
   const server = new Server(
     {
@@ -218,20 +185,8 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  const takumiPayToolCount = takumiPayService
-    ? takumiPayProductTools.length + exchangeRateTools.length + tokenContractTools.length
-    : 0;
-
   console.error('MCP Server running on stdio');
-  console.error(
-    `Loaded ${tools.length} tools (${legacyTools.length} legacy + ${takumiPayToolCount} takumipay)`,
-  );
-
-  if (takumiPayService) {
-    console.error('TakumiPay product tools are available');
-  } else {
-    console.error('WARNING: TakumiPay tools NOT available - TAKUMIPAY_API_KEY not configured');
-  }
+  console.error(`Loaded ${tools.length} tools (${legacyTools.length} legacy)`);
 }
 
 main().catch((error) => {

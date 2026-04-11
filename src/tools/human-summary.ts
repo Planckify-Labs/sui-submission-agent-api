@@ -140,36 +140,55 @@ export function buildHumanSummary(
       return `Approve ${spender} to spend up to ${amount} ${symbol}`;
     }
 
-    // create_booking (simulate): TakumiPay booking preview before payment.
-    // `price_formatted` is the locale-formatted display string (e.g.
-    // "Rp 50.000") so the server doesn't have to reimplement i18n currency.
-    case 'create_booking': {
-      const product = str(input, 'product_name');
-      const price = str(input, 'price_formatted');
-      return `Preview: ${product} — ${price} (not yet executed)`;
+    // ─── points / write ────────────────────────────────────────────────────
+    // deposit_points: on-chain token transfer + API deposit registration.
+    // The agent MUST have called get_points_price first so `expected_points`
+    // is meaningful to the user reading the approval sheet.
+    case 'deposit_points': {
+      const amount = str(input, 'token_amount');
+      const symbol = str(input, 'token_symbol');
+      const points = str(input, 'expected_points');
+      return `Deposit ${amount} ${symbol} for ~${points} points`;
     }
 
-    // execute_booking: the actual payment step for a reserved booking.
-    case 'execute_booking': {
-      const price = str(input, 'price_formatted');
+    // execute_redemption: irreversibly spend points on a catalog product.
+    case 'execute_redemption': {
       const product = str(input, 'product_name');
-      const bookingId = str(input, 'booking_id');
-      return `Pay ${price} for ${product} (booking #${bookingId})`;
+      const pointsCost = str(input, 'points_cost');
+      return `Redeem ${product} for ${pointsCost} points`;
     }
 
-    // cancel_booking: may trigger on-chain refund — mobile-executed.
-    case 'cancel_booking': {
-      const bookingId = str(input, 'booking_id');
-      const product = str(input, 'product_name');
-      return `Cancel booking #${bookingId} (${product})`;
-    }
+    // ─── points / simulate ─────────────────────────────────────────────────
+    // request_authentication: shows login UI on the mobile. No tool inputs.
+    case 'request_authentication':
+      return 'Log in to TakumiPay';
 
-    // create_purchase: one-shot TakumiPay purchase (no reserve step).
-    case 'create_purchase': {
-      const product = str(input, 'product_name');
-      const price = str(input, 'price_formatted');
-      return `Purchase ${product} for ${price}`;
-    }
+    // ─── read (silent, non-approval) ───────────────────────────────────────
+    // Reads never surface in an approval sheet, but the registry test
+    // requires every tool name to map to a non-empty summary string so we
+    // stub them out here as simple labels.
+    case 'get_wallet_tokens':
+      return 'Fetch wallet token list';
+    case 'get_redemption_categories':
+      return 'Fetch redemption categories';
+    case 'get_redemption_catalog':
+      return 'Fetch redemption catalog';
+    case 'search_redemption_catalog':
+      return 'Search redemption catalog';
+    case 'get_product_details':
+      return 'Fetch redemption product details';
+    case 'get_product_input_fields':
+      return 'Fetch redemption product input fields';
+    case 'get_points_price':
+      return 'Fetch points conversion rate';
+    case 'get_points_balance':
+      return 'Fetch points balance';
+    case 'get_points_history':
+      return 'Fetch points history';
+    case 'get_redemption_status':
+      return 'Fetch redemption status';
+    case 'get_redemption_history':
+      return 'Fetch redemption history';
 
     default:
       return `Execute ${name}`;
