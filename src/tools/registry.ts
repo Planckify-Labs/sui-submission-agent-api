@@ -39,7 +39,7 @@ export interface JsonSchemaObject {
 }
 
 export interface JsonSchemaProperty {
-  type: 'string' | 'integer' | 'number' | 'boolean' | 'array' | 'object';
+  type?: 'string' | 'integer' | 'number' | 'boolean' | 'array' | 'object';
   description?: string;
   pattern?: string;
   enum?: Array<string | number>;
@@ -47,7 +47,8 @@ export interface JsonSchemaProperty {
   items?: JsonSchemaProperty | { type: string };
   properties?: Record<string, JsonSchemaProperty>;
   required?: string[];
-  additionalProperties?: boolean;
+  additionalProperties?: boolean | { type: string };
+  oneOf?: JsonSchemaProperty[];
 }
 
 export interface ToolMeta {
