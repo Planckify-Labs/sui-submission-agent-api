@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg18
+    container_name: takumi-agent-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5434:5432"
+    environment:
+      POSTGRES_USER: takumiai_agent
+      POSTGRES_PASSWORD: 6ce8c4e8c383710c3a9b7354178aa942e17a4d00542ec43578973d4ac4a7cb84
+      POSTGRES_DB: takumiai_agent_db
+    volumes:
+      - agent_postgres_data:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U takumiai_agent -d takumiai_agent_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  valkey:
+    image: valkey/valkey:9-alpine
+    container_name: takumi-agent-valkey
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6381:6379"
+    volumes:
+      - agent_valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  agent_postgres_data:
+  agent_valkey_data:

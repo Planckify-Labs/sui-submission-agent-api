@@ -27,10 +27,18 @@ WORKDIR /app
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy source code and config files
+# Copy package files, config, and source
 COPY package.json pnpm-lock.yaml ./
 COPY tsconfig.json tsconfig.build.json* nest-cli.json ./
+COPY prisma ./prisma
+COPY prisma.config.ts ./
 COPY src ./src
+
+# Create dummy .env for Prisma (excluded by .dockerignore)
+RUN touch .env
+
+# Generate Prisma client
+RUN pnpm prisma generate
 
 # Build the application
 RUN pnpm run build
@@ -43,7 +51,7 @@ RUN pnpm prune --prod
 # ============================================
 FROM node:22-alpine AS production
 
-# Add labels for better maintainability
+# Add labels
 LABEL org.opencontainers.image.title="Takumi Agent API"
 LABEL org.opencontainers.image.description="NestJS AI Agent API with MCP integration"
 
@@ -58,25 +66,31 @@ WORKDIR /app
 
 # Set production environment
 ENV NODE_ENV=production
-ENV PORT=3000
 
 # Copy production dependencies and built application
 COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
+COPY --from=builder --chown=nestjs:nodejs /app/generated ./generated
 COPY --from=builder --chown=nestjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nestjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nestjs:nodejs /app/prisma.config.ts ./
+
+# Copy and setup entrypoint script
+COPY --chown=nestjs:nodejs scripts/docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
 
 # Switch to non-root user
 USER nestjs
 
 # Expose the application port
-EXPOSE 3000
+EXPOSE 7200
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 7200) + '/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 # Use dumb-init as entrypoint for proper signal handling
 ENTRYPOINT ["dumb-init", "--"]
 
-# Start the application
-CMD ["node", "dist/main.js"]
+# Start the application (runs prisma db push then node)
+CMD ["./docker-entrypoint.sh"]

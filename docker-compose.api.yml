@@ -1,0 +1,26 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: takumi-agent-api
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:7200:7200"
+    environment:
+      NODE_ENV: production
+      PORT: 7200
+      # Database (external - set in Dokploy environment)
+      DATABASE_URL: ${DATABASE_URL}
+      # Valkey/Redis (external - set in Dokploy environment)
+      VALKEY_URL: ${VALKEY_URL}
+      # AI Model
+      KIMI_K2_API_KEY: ${KIMI_K2_API_KEY}
+      # API Auth
+      CHAT_API_KEY: ${CHAT_API_KEY}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:7200/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

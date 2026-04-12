@@ -4,6 +4,7 @@ node_modules
 
 # Build output
 dist
+generated
 
 # IDE and editor
 .idea
@@ -56,4 +57,3 @@ Jenkinsfile
 .prettierrc*
 biome.json
 jest.config.*
-tsconfig.build.json

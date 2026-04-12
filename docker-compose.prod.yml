@@ -1,0 +1,73 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: takumi-agent-api
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:7200:7200"
+    environment:
+      NODE_ENV: production
+      PORT: 7200
+      DATABASE_URL: postgresql://takumiai_agent:${POSTGRES_PASSWORD}@postgres:5432/takumiai_agent_db
+      VALKEY_URL: redis://valkey:6379
+      KIMI_K2_API_KEY: ${KIMI_K2_API_KEY}
+      CHAT_API_KEY: ${CHAT_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:7200/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - takumi-agent-network
+
+  postgres:
+    image: timescale/timescaledb-ha:pg18
+    container_name: takumi-agent-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5434:5432"
+    environment:
+      POSTGRES_USER: takumiai_agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: takumiai_agent_db
+    volumes:
+      - agent_postgres_data:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U takumiai_agent -d takumiai_agent_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - takumi-agent-network
+
+  valkey:
+    image: valkey/valkey:9-alpine
+    container_name: takumi-agent-valkey
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6381:6379"
+    volumes:
+      - agent_valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - takumi-agent-network
+
+volumes:
+  agent_postgres_data:
+  agent_valkey_data:
+
+networks:
+  takumi-agent-network:
+    driver: bridge

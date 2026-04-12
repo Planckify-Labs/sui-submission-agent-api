@@ -1,0 +1,23 @@
+services:
+  valkey:
+    image: valkey/valkey:9-alpine
+    container_name: takumi-agent-valkey
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:6381:6379"
+    command: valkey-server --requirepass ${VALKEY_PASSWORD}
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD}
+    volumes:
+      - agent_valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-a", "${VALKEY_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  agent_valkey_data:
+
+# After deploying, use this in your API:
+# VALKEY_URL=redis://:${VALKEY_PASSWORD}@<SERVER_IP>:6381

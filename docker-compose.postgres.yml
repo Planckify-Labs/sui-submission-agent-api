@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg18
+    container_name: takumi-agent-postgres
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:5434:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-takumiai_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-takumiai_agent_db}
+    volumes:
+      - agent_postgres_data:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-takumiai_agent} -d ${POSTGRES_DB:-takumiai_agent_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  agent_postgres_data:
+
+# After deploying, your DATABASE_URL will be:
+# postgresql://<POSTGRES_USER>:<POSTGRES_PASSWORD>@<SERVER_IP>:5434/<POSTGRES_DB>
+# Example: postgresql://takumiai_agent:your-password@db.yourdomain.com:5434/takumiai_agent_db
