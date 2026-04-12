@@ -342,18 +342,41 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
     category: 'blockchain_write',
     executor: 'mobile',
     capability: 'write',
-    description: 'Transfer an ERC20 token from the mobile wallet to a recipient.',
+    description:
+      'Transfer an ERC20 token from the mobile wallet to a recipient. ' +
+      'ALWAYS obtain contract_address from get_wallet_tokens — never guess it. ' +
+      'Provide token_amount (human-readable, e.g. "98000") and token_decimals ' +
+      '(integer from get_wallet_tokens, e.g. 2 for IDRX) so the mobile can ' +
+      'compute the on-chain units via parseUnits — do NOT compute amount_wei ' +
+      'yourself, decimal arithmetic on non-18-decimal tokens is error-prone.',
     inputSchema: {
       type: 'object',
       properties: {
         chain_id: CHAIN_ID_PROP,
-        contract_address: ADDRESS_PROP('ERC20 token contract address.'),
+        contract_address: ADDRESS_PROP(
+          'ERC20 token contract address from get_wallet_tokens.',
+        ),
         to: ADDRESS_PROP('Recipient address.'),
+        token_amount: {
+          type: 'string',
+          description:
+            'Human-readable transfer amount, e.g. "98000" for 98 000 IDRX. ' +
+            'The mobile calls parseUnits(token_amount, token_decimals) internally.',
+        },
+        token_decimals: {
+          type: 'integer',
+          description:
+            'Decimal places for this token (from get_wallet_tokens). ' +
+            'e.g. 2 for IDRX, 6 for USDC, 18 for most ERC20s.',
+          minimum: 0,
+        },
         amount_wei: WEI_AMOUNT_PROP(
-          'Token amount in the token\'s smallest unit (base-10 string). For a token with 18 decimals, 1 token = "1000000000000000000".',
+          'Fallback: pre-computed token amount in the token\'s smallest unit ' +
+          '(base-10 string). Use token_amount + token_decimals instead — ' +
+          'this field is kept for backwards compatibility only.',
         ),
       },
-      required: ['chain_id', 'contract_address', 'to', 'amount_wei'],
+      required: ['chain_id', 'contract_address', 'to', 'token_amount', 'token_decimals'],
       additionalProperties: false,
     },
   },
@@ -397,18 +420,36 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
     category: 'blockchain_write',
     executor: 'mobile',
     capability: 'write',
-    description: 'Approve an ERC20 spender allowance from the mobile wallet.',
+    description:
+      'Approve an ERC20 spender allowance from the mobile wallet. ' +
+      'Provide token_amount (human-readable) and token_decimals so the mobile ' +
+      'can call parseUnits internally — do NOT compute amount_wei yourself.',
     inputSchema: {
       type: 'object',
       properties: {
         chain_id: CHAIN_ID_PROP,
         contract_address: ADDRESS_PROP('ERC20 token contract address.'),
         spender: ADDRESS_PROP('Address being approved to spend tokens.'),
+        token_amount: {
+          type: 'string',
+          description:
+            'Human-readable allowance amount, e.g. "98000". ' +
+            'The mobile calls parseUnits(token_amount, token_decimals) internally. ' +
+            'Use "0" to revoke an existing allowance.',
+        },
+        token_decimals: {
+          type: 'integer',
+          description:
+            'Decimal places for this token (from get_wallet_tokens). ' +
+            'e.g. 2 for IDRX, 6 for USDC, 18 for most ERC20s.',
+          minimum: 0,
+        },
         amount_wei: WEI_AMOUNT_PROP(
-          'Allowance in the token\'s smallest unit (base-10 string). Use "0" to revoke.',
+          'Fallback: allowance in the token\'s smallest unit (base-10 string). ' +
+          'Use token_amount + token_decimals instead. Use "0" to revoke.',
         ),
       },
-      required: ['chain_id', 'contract_address', 'spender', 'amount_wei'],
+      required: ['chain_id', 'contract_address', 'spender', 'token_amount', 'token_decimals'],
       additionalProperties: false,
     },
   },
@@ -786,6 +827,90 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
           type: 'integer',
           description: 'Max rows to return.',
           minimum: 1,
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+
+  // ─── Mobile / address_book — capability `read` ─────────────────────────────
+  // Address book tools run on the mobile client because the data lives in the
+  // user's authenticated session — the server has zero knowledge of contacts.
+  // Auth is handled transparently by the mobile's ky instance (Bearer token
+  // from secure storage). All three tools are classified `read` / silent UX.
+  get_address_book: {
+    name: 'get_address_book',
+    category: 'utility',
+    executor: 'mobile',
+    capability: 'read',
+    description:
+      "Return all saved contacts from the user's address book. Each contact " +
+      'has an id, label (display name), blockchain address, and optional ' +
+      'ens_name, notes, and chain_name fields. Use this to list contacts or ' +
+      'to resolve a name to an address before initiating a transfer. ' +
+      'Auth required — the mobile loads the user JWT from secure storage.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  get_address_book_entry: {
+    name: 'get_address_book_entry',
+    category: 'utility',
+    executor: 'mobile',
+    capability: 'read',
+    description:
+      'Fetch a single address book contact by its id. Use this for a precise ' +
+      "look-up when you already know the contact's id (e.g. from a previous " +
+      'get_address_book or search_address_book call). Returns id, label, ' +
+      'address, and optional ens_name / notes / chain_name. Auth required.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Unique contact id returned by get_address_book or search_address_book.',
+        },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  search_address_book: {
+    name: 'search_address_book',
+    category: 'utility',
+    executor: 'mobile',
+    capability: 'read',
+    description:
+      "Search the user's address book contacts by name, address, or chain. " +
+      'Use this to resolve a human label like "Alice" or "my Binance wallet" ' +
+      'to a blockchain address before a transfer — NEVER guess an address. ' +
+      'At least one of query, chain_name, or is_evm must be provided. ' +
+      'Returns a filtered contacts list with the same fields as get_address_book. ' +
+      'Auth required.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Case-insensitive substring searched across label, address, ' +
+            'ens_name, and notes fields.',
+        },
+        chain_name: {
+          type: 'string',
+          description:
+            'Exact (case-insensitive) match on the contact\'s chainName field ' +
+            '(e.g. "Ethereum", "Base", "BNB Smart Chain").',
+        },
+        is_evm: {
+          type: 'boolean',
+          description:
+            'If true, return only EVM-compatible contacts. If false, return ' +
+            'only non-EVM contacts. Omit to return all.',
         },
       },
       required: [],

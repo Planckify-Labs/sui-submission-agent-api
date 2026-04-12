@@ -121,14 +121,28 @@ describe('TOOL_REGISTRY', () => {
     const weiFields: Array<[string, string]> = [
       ['send_native_token', 'value_wei'],
       ['estimate_gas', 'value_wei'],
-      ['transfer_erc20', 'amount_wei'],
-      ['approve_erc20', 'amount_wei'],
     ];
     for (const [toolName, field] of weiFields) {
       const prop = TOOL_REGISTRY[toolName].inputSchema!.properties[field];
       expect(prop).toBeDefined();
       expect(prop.type).toBe('string');
       expect(prop.pattern).toBe('^[0-9]+$');
+    }
+  });
+
+  it('transfer_erc20 and approve_erc20 accept human-readable amount fields', () => {
+    for (const toolName of ['transfer_erc20', 'approve_erc20']) {
+      const schema = TOOL_REGISTRY[toolName].inputSchema!;
+      // Preferred human-readable path
+      expect(schema.properties.token_amount).toBeDefined();
+      expect(schema.properties.token_amount.type).toBe('string');
+      expect(schema.properties.token_decimals).toBeDefined();
+      expect(schema.properties.token_decimals.type).toBe('integer');
+      // Both required
+      expect(schema.required).toContain('token_amount');
+      expect(schema.required).toContain('token_decimals');
+      // Fallback amount_wei field still present
+      expect(schema.properties.amount_wei).toBeDefined();
     }
   });
 
@@ -198,6 +212,11 @@ describe('TOOL_REGISTRY', () => {
 
       // Mobile / points — simulate
       { name: 'request_authentication', category: 'points', executor: 'mobile', capability: 'simulate' },
+
+      // Mobile / utility (address book) — read
+      { name: 'get_address_book', category: 'utility', executor: 'mobile', capability: 'read' },
+      { name: 'get_address_book_entry', category: 'utility', executor: 'mobile', capability: 'read' },
+      { name: 'search_address_book', category: 'utility', executor: 'mobile', capability: 'read' },
     ];
 
     for (const expectedMeta of expected) {
