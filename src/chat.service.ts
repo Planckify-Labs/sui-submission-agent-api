@@ -34,6 +34,7 @@ import {
   type AgentEvent,
   type AgentToolResult,
 } from './chat.events'
+import { ConversationService } from './history/conversation.service'
 
 /**
  * Signature the agent loop needs from the language model. The real path
@@ -107,6 +108,7 @@ export class ChatService {
     private readonly configService: ConfigService,
     private readonly mcpClientService: MCPClientService,
     private readonly sessionService: SessionService,
+    private readonly conversationService: ConversationService,
   ) {}
 
   /**
@@ -150,9 +152,11 @@ export class ChatService {
    * `streamAgentSSE()`. This keeps the loop pure and easy to unit-test
    * without standing up a Fastify adapter.
    */
-  async *agentLoop(session: Session): AsyncGenerator<AgentEvent> {
+  async *agentLoop(session: Session, priorMessageCount?: number): AsyncGenerator<AgentEvent> {
     const walletCtx = session.wallet_context
     const systemPrompt = buildSystemPrompt(walletCtx)
+    // Capture the message count at the start of this turn for persistence (task 07)
+    const turnStartMessageCount = priorMessageCount ?? session.messages.length
 
     // Fetch MCP tools once per turn. After protocol v1.1 §11 the MCP
     // subprocess is a bare diagnostic template (`owner`, `calculator`)
@@ -275,9 +279,31 @@ export class ChatService {
 
       if (toolCalls.length === 0) {
         session.state = 'idle'
+
+        // Persist new messages for this turn (task 07)
+        if (session.conversationId) {
+          const newMessages = session.messages.slice(turnStartMessageCount)
+          try {
+            await this.conversationService.appendMessages(session.conversationId, newMessages)
+          } catch (err) {
+            this.logger.warn(
+              `Failed to persist messages for conversation ${session.conversationId}: ${(err as Error).message}`,
+            )
+          }
+        }
+
         yield {
           event: 'done',
-          data: { session_id: session.id, usage: session.usage },
+          data: {
+            session_id: session.id,
+            usage: session.usage,
+            ...(session.conversationId !== undefined
+              ? { conversation_id: session.conversationId }
+              : {}),
+            ...(session.conversationTitle !== undefined
+              ? { conversation_title: session.conversationTitle }
+              : {}),
+          },
         }
         return
       }
@@ -491,8 +517,8 @@ export class ChatService {
    * controller uses this for fresh turns; the reconnect path stays on
    * `buildReconnectResponse`.
    */
-  streamAgentSSE(session: Session): Response {
-    const generator = this.agentLoop(session)
+  streamAgentSSE(session: Session, priorMessageCount?: number): Response {
+    const generator = this.agentLoop(session, priorMessageCount)
     const encoder = new TextEncoder()
 
     const stream = new ReadableStream<Uint8Array>({

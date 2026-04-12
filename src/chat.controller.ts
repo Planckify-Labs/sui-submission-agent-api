@@ -19,6 +19,7 @@ import {
 import { ApiKeyGuard } from './guards/api-key.guard'
 import { SessionService } from './session'
 import type { MobileResponse, WalletContext } from './session/types'
+import { ConversationService } from './history/conversation.service'
 
 @UseGuards(ApiKeyGuard)
 @Controller('chat')
@@ -26,6 +27,7 @@ export class ChatController {
   constructor(
     private readonly chatService: ChatService,
     private readonly sessionService: SessionService,
+    private readonly conversationService: ConversationService,
   ) {}
 
   @Post()
@@ -39,7 +41,7 @@ export class ChatController {
       })
     }
 
-    const { messages, session_id, wallet_context } = parsed.data
+    const { messages, session_id, wallet_context, conversation_id } = parsed.data
 
     // Reconnect branch: mobile re-sends /chat with an existing session_id
     // and an empty messages array. See AGENT_PROTOCOL.md §4. The in-flight
@@ -75,7 +77,51 @@ export class ChatController {
       session.messages.push(msg as unknown as ModelMessage)
     }
 
-    return this.chatService.streamAgentSSE(session)
+    // ── Task 06: conversation persistence integration ────────────────
+    let priorMessageCount = session.messages.length
+
+    if (conversation_id) {
+      // Continue an existing conversation: load prior messages and prepend
+      const walletAddr = session.wallet_context.address
+      const conv = await this.conversationService.getConversation(conversation_id, walletAddr)
+      if (!conv) {
+        throw new NotFoundException({ code: 'conversation_not_found' })
+      }
+
+      // Prepend prior messages before the new ones that were just pushed
+      const priorMessages = conv.messages.map((m) => ({
+        role: m.role as ModelMessage['role'],
+        content: m.contentJson,
+      })) as ModelMessage[]
+
+      // Insert prior messages before current turn messages
+      const currentTurnMessages = session.messages.splice(0)
+      session.messages.push(...priorMessages, ...currentTurnMessages)
+      priorMessageCount = priorMessages.length
+
+      session.conversationId = conv.id
+      session.conversationTitle = conv.title
+    } else if (messages.length > 0) {
+      // New conversation: create a row before the agent loop starts
+      const walletAddr = session.wallet_context.address
+      const chainId = session.wallet_context.chain_id
+      const firstUserMessage = messages.find(
+        (m) => (m as { role: string }).role === 'user',
+      ) as ModelMessage | undefined
+
+      if (firstUserMessage) {
+        const conv = await this.conversationService.createConversation(
+          walletAddr,
+          chainId,
+          firstUserMessage,
+        )
+        session.conversationId = conv.id
+        session.conversationTitle = conv.title
+        priorMessageCount = 0
+      }
+    }
+
+    return this.chatService.streamAgentSSE(session, priorMessageCount)
   }
 
   /**

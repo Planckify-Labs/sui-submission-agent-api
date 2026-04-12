@@ -38,6 +38,7 @@ export const chatRequestSchema = z.object({
   messages: z.array(z.any()).default([]),
   session_id: z.string().optional(),
   wallet_context: walletContextSchema.optional(),
+  conversation_id: z.string().uuid().optional(),
 })
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>

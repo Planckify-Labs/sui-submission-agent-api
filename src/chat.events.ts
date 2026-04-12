@@ -64,6 +64,8 @@ export interface TextDeltaData {
 export interface DoneData {
   session_id: string
   usage?: { prompt_tokens: number; completion_tokens: number }
+  conversation_id?: string
+  conversation_title?: string
 }
 
 /**

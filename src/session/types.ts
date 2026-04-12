@@ -119,6 +119,10 @@ export interface Session {
   usage: { prompt_tokens: number; completion_tokens: number }
   created_at: Date
   last_active: Date
+  /** Set when the session is tied to a persisted conversation. */
+  conversationId?: string
+  /** Title of the active conversation — forwarded in the `done` SSE event. */
+  conversationTitle?: string
 }
 
 /**

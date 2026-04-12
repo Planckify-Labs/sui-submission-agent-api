@@ -7,6 +7,9 @@ import { ChatService } from './chat.service'
 import { ApiKeyGuard } from './guards/api-key.guard'
 import { MCPClientService } from './mcp-client.service'
 import { SessionModule } from './session'
+import { ValkeyModule } from './valkey/valkey.module'
+import { PrismaModule } from './prisma/prisma.module'
+import { HistoryModule } from './history/history.module'
 
 @Module({
   imports: [
@@ -14,6 +17,9 @@ import { SessionModule } from './session'
       isGlobal: true,
     }),
     SessionModule,
+    ValkeyModule,
+    PrismaModule,
+    HistoryModule,
   ],
   controllers: [AppController, ChatController],
   providers: [AppService, ChatService, ApiKeyGuard, MCPClientService],
