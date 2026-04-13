@@ -4,7 +4,7 @@ services:
     container_name: takumi-agent-valkey
     restart: unless-stopped
     ports:
-      - "0.0.0.0:6381:6379"
+      - "0.0.0.0:7379:6379"
     command: valkey-server --requirepass ${VALKEY_PASSWORD}
     environment:
       VALKEY_PASSWORD: ${VALKEY_PASSWORD}
@@ -20,4 +20,4 @@ volumes:
   agent_valkey_data:
 
 # After deploying, use this in your API:
-# VALKEY_URL=redis://:${VALKEY_PASSWORD}@<SERVER_IP>:6381
+# VALKEY_URL=redis://:${VALKEY_PASSWORD}@<SERVER_IP>:7379

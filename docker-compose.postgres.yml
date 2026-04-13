@@ -4,7 +4,7 @@ services:
     container_name: takumi-agent-postgres
     restart: unless-stopped
     ports:
-      - "0.0.0.0:5434:5432"
+      - "0.0.0.0:7432:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-takumiai_agent}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -21,5 +21,5 @@ volumes:
   agent_postgres_data:
 
 # After deploying, your DATABASE_URL will be:
-# postgresql://<POSTGRES_USER>:<POSTGRES_PASSWORD>@<SERVER_IP>:5434/<POSTGRES_DB>
-# Example: postgresql://takumiai_agent:your-password@db.yourdomain.com:5434/takumiai_agent_db
+# postgresql://<POSTGRES_USER>:<POSTGRES_PASSWORD>@<SERVER_IP>:7432/<POSTGRES_DB>
+# Example: postgresql://takumiai_agent:your-password@db.yourdomain.com:7432/takumiai_agent_db
