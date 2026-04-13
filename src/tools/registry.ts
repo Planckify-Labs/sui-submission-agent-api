@@ -223,8 +223,11 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
     description:
       'Return the canonical supported-token list for a chain (or several ' +
       "chains in parallel), sourced from the backend's token API — the same " +
-      "data the wallet's Send screen uses. Each row carries symbol, name, " +
-      'contract address, decimals, is_native / is_stable_coin flags, and ' +
+      "data the wallet's Send screen uses. Each row carries token_id " +
+      '(backend UUID — pass to get_points_price), symbol, name, ' +
+      'contract address, decimals, is_native / is_stable_coin flags, ' +
+      'optional pegged_currency (fiat code like "IDR" — only stablecoins ' +
+      'with this field are eligible for deposit_points), and ' +
       '(when `include_balance: true`) the live on-chain balance. Use this ' +
       "tool to resolve a token symbol (e.g. 'IDRX', 'USDT') to its contract " +
       'address before calling transfer_erc20 / approve_erc20 / read_contract — ' +
