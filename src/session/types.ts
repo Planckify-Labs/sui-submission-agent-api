@@ -1,6 +1,14 @@
 import type { ModelMessage } from 'ai'
 
 /**
+ * Shape of any SSE event the session may emit externally (i.e. outside
+ * the agent loop generator). Kept as a structural alias to avoid a
+ * circular import with `chat.events.ts` where the full `AgentEvent`
+ * discriminated union lives.
+ */
+export type ExternalSseEvent = { event: string; data: unknown }
+
+/**
  * Session-related types used by the agent loop.
  *
  * These mirror the definitions in `AGENT_PROTOCOL.md` (§8, §9, §12).
@@ -123,6 +131,21 @@ export interface Session {
   conversationId?: string
   /** Title of the active conversation — forwarded in the `done` SSE event. */
   conversationTitle?: string
+  /**
+   * Side-channel writer into the open SSE stream for this session.
+   * Set by `ChatService.streamAgentSSE` when the stream opens and cleared
+   * when it closes. Used by out-of-loop emitters (e.g. delay-hint mini
+   * inference) to push `text_delta` frames without going through the
+   * agent generator. Undefined when no stream is open.
+   */
+  enqueueExternal?: (event: ExternalSseEvent) => void
+  /**
+   * Tool call ids for which a delay hint has already been dispatched.
+   * One hint per tool call — prevents repeated mini-inference firings
+   * if the mobile posts `/chat/progress` more than once for the same
+   * tool (e.g. timer misfire or retried hint).
+   */
+  delayHintsSent?: Set<string>
 }
 
 /**

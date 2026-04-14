@@ -14,6 +14,7 @@ import { ChatService } from './chat.service'
 import {
   chatRequestSchema,
   mobileResponseSchema,
+  progressRequestSchema,
   type MobileResponseBody,
 } from './chat.schemas'
 import { ApiKeyGuard } from './guards/api-key.guard'
@@ -181,5 +182,31 @@ export class ChatController {
         message,
       })
     }
+  }
+
+  /**
+   * Mobile pings this endpoint when a tool has been pending on the device
+   * for longer than its client-side delay threshold (~3s). The server
+   * replies with `202 Accepted` immediately and asynchronously streams a
+   * short, in-voice reassurance over the still-open `/chat` SSE.
+   * See AGENT_PROTOCOL.md §8.5.
+   */
+  @Post('progress')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async progress(@Body() payload: unknown): Promise<void> {
+    const parsed = progressRequestSchema.safeParse(payload)
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'invalid_request',
+        message: 'Malformed /chat/progress body.',
+        details: parsed.error.issues,
+      })
+    }
+
+    const { session_id, tool_call_id } = parsed.data
+
+    // Fire-and-forget: mobile does not wait for the mini inference to
+    // finish, and any failure inside it is already swallowed.
+    void this.chatService.emitDelayHint(session_id, tool_call_id)
   }
 }

@@ -523,6 +523,20 @@ export class ChatService {
 
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
+        // Expose a side-channel writer for out-of-loop emitters (delay-hint
+        // mini inference). Guarded by `closed` so a hint arriving after the
+        // stream has been torn down is silently dropped instead of throwing.
+        let closed = false
+        session.enqueueExternal = (event) => {
+          if (closed) return
+          try {
+            controller.enqueue(encoder.encode(encodeSseEvent(event)))
+          } catch {
+            // Controller was closed between the guard and the enqueue —
+            // harmless, the stream is gone anyway.
+          }
+        }
+
         try {
           for await (const event of generator) {
             controller.enqueue(encoder.encode(encodeSseEvent(event)))
@@ -542,10 +556,13 @@ export class ChatService {
             ),
           )
         } finally {
+          closed = true
+          session.enqueueExternal = undefined
           controller.close()
         }
       },
       cancel() {
+        session.enqueueExternal = undefined
         void generator.return(undefined)
       },
     })
@@ -558,6 +575,108 @@ export class ChatService {
         Connection: 'keep-alive',
       },
     })
+  }
+
+  /**
+   * Delay-hint mini inference — invoked by `POST /chat/progress` when
+   * the mobile reports a tool has been pending for >3s. Runs a tiny
+   * one-shot call against the same model with a narrow prompt, streams
+   * the reassurance tokens back on the still-open SSE as `text_delta`
+   * frames, and returns once the mini stream finishes.
+   *
+   * Guards:
+   *   - Silently no-ops when the session doesn't exist, the tool is no
+   *     longer pending, or a hint has already been sent for this tool.
+   *   - Silently no-ops when the stream has been closed (no
+   *     `enqueueExternal` writer on the session).
+   *   - Never throws — any model/network failure is logged and dropped.
+   */
+  async emitDelayHint(sessionId: string, toolCallId: string): Promise<void> {
+    const session = this.sessionService.get(sessionId)
+    if (!session) return
+
+    // Only speak while the tool is still pending. If the mobile already
+    // posted the real result (race), the main loop will carry on on its
+    // own — a late hint here would just be noise.
+    if (!session.pendingPayloads.has(toolCallId)) return
+
+    // One hint per tool call.
+    if (!session.delayHintsSent) session.delayHintsSent = new Set()
+    if (session.delayHintsSent.has(toolCallId)) return
+    session.delayHintsSent.add(toolCallId)
+
+    const enqueue = session.enqueueExternal
+    if (!enqueue) return
+
+    const pending = session.pendingPayloads.get(toolCallId)
+    const humanSummary = pending?.meta.human_summary ?? 'the request'
+
+    // Prefix with a paragraph break so the hint reads as a distinct
+    // beat in the assistant bubble instead of running into prior text.
+    enqueue({ event: 'text_delta', data: { content: '\n\n' } })
+
+    // Keep the user's ORIGINAL request as the only "user" turn so the
+    // model treats its language and tone as the signal to mirror. All
+    // instructions for the mini inference itself live in the system
+    // prompt — otherwise a long English instruction as the last user
+    // message biases the reply toward English regardless of what the
+    // user actually wrote.
+    const lastUser = findLastUserText(session.messages)
+    const miniMessages: ModelMessage[] = [
+      {
+        role: 'user',
+        content: lastUser ?? 'Please help me with my wallet.',
+      } as ModelMessage,
+    ]
+
+    // CRITICAL: the language rule comes FIRST and is phrased neutrally.
+    // Earlier versions listed Indonesian filler words as "don't use
+    // these" examples, which biased the model into assuming Indonesian
+    // was the expected output language even when the user wrote English.
+    // Keep all examples language-agnostic.
+    const miniSystem = [
+      'LANGUAGE RULE (highest priority, read this first):',
+      "- Detect the language of the user's message shown below and reply in EXACTLY that same language.",
+      '- If the user wrote in English, reply in English. If Indonesian, reply in Indonesian. Mirror whatever language they chose.',
+      '- Never switch languages on the user. This rule overrides everything else.',
+      '',
+      'Role: you are the same assistant that is currently helping the user with a wallet action.',
+      `Right now you are processing their request: ${humanSummary}.`,
+      'It is taking a few seconds to finish.',
+      '',
+      'Your ONLY job for this reply:',
+      '- Produce ONE short sentence telling the user you are still processing their request.',
+      '  Core meaning: "please wait, I am still working on what you asked for".',
+      '- Keep the register polite, warm, and professional — like a friendly customer-service reply.',
+      '  Clear and calm. Not overly casual, not slangy, not stiff.',
+      '- Reference what the user asked for in general terms when it helps clarity.',
+      '- Do NOT apologize. Do NOT mention tools, APIs, blockchains, or internals.',
+      '- Do NOT call any tools. Just reply with plain text, one sentence.',
+    ].join('\n')
+
+    try {
+      const call = this.modelRunner({
+        model: this.getModel(),
+        messages: miniMessages,
+        tools: {},
+        system: miniSystem,
+      })
+
+      for await (const chunk of call.textStream) {
+        // Re-check pending state between chunks — if the real tool
+        // result arrived mid-stream, stop adding noise to the bubble.
+        if (!session.pendingPayloads.has(toolCallId)) break
+        enqueue({ event: 'text_delta', data: { content: chunk } })
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.logger.warn(`emitDelayHint mini inference failed: ${message}`)
+      // Fallback to a static line so the user still gets acknowledgement.
+      enqueue({
+        event: 'text_delta',
+        data: { content: 'Hang tight — still working on this for you.' },
+      })
+    }
   }
 
   /**
@@ -794,4 +913,27 @@ export function seedSession(
  */
 export function syntheticToolCallId(): string {
   return `tc-${randomUUID()}`
+}
+
+/**
+ * Pull the plain-text content of the most recent user turn out of the
+ * session history. Used to give the delay-hint mini inference just
+ * enough context to reference what the user asked for, without paying
+ * the token cost of the full conversation.
+ */
+function findLastUserText(messages: ModelMessage[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.role !== 'user') continue
+    const content = msg.content as unknown
+    if (typeof content === 'string') return content
+    if (Array.isArray(content)) {
+      const textPart = content.find(
+        (p) => (p as { type?: string })?.type === 'text',
+      ) as { text?: string } | undefined
+      if (textPart?.text) return textPart.text
+    }
+    return undefined
+  }
+  return undefined
 }

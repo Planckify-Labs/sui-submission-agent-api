@@ -80,3 +80,17 @@ export const mobileResponseSchema = z.discriminatedUnion('type', [
 ])
 
 export type MobileResponseBody = z.infer<typeof mobileResponseSchema>
+
+/**
+ * `POST /chat/progress` body — mobile fires this after a tool has been
+ * pending for ~3s on the device. The server answers by emitting a
+ * natural-voice "please wait" message on the still-open SSE stream.
+ * See AGENT_PROTOCOL.md §8.5.
+ */
+export const progressRequestSchema = z.object({
+  session_id: z.string().min(1),
+  tool_call_id: z.string().min(1),
+  reason: z.string().optional(),
+})
+
+export type ProgressRequestBody = z.infer<typeof progressRequestSchema>
