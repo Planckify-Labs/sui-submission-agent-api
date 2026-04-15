@@ -25,7 +25,18 @@ export type AgentToolResult =
   | {
       status: 'approved_and_executed'
       tx_hash?: `0x${string}`
+      /**
+       * Compact agent-facing payload. This is what the LLM reasons
+       * over on every subsequent turn — keep it small.
+       */
       data?: unknown
+      /**
+       * UI-facing rich payload. Persisted with the tool result so
+       * historical replay can render the same card, but STRIPPED
+       * before the result is fed back into `streamText` so it never
+       * enters LLM context. See `stripDisplayForLLM()` in chat.service.
+       */
+      display?: unknown
     }
   | {
       status: 'approved_but_failed'

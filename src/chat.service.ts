@@ -125,6 +125,93 @@ export class ChatService {
   }
 
   /**
+   * Remove the `display` slice from every tool-result `ModelMessage`
+   * before handing the array to `streamText`. Mobile executors split
+   * their payload into `data` (agent-facing, compact) and `display`
+   * (UI-facing, rich). The rich slice is persisted in `contentJson`
+   * so historical replay renders the same card, but feeding it to
+   * the LLM defeats the whole point — the model would re-narrate the
+   * catalog / balance list on every turn and eat the token budget.
+   *
+   * This mirrors what server-tool results already do via
+   * `transformForAgent` (which emits a compact copy into
+   * `session.messages`) and `transformForDisplay` (which emits the
+   * rich copy only into the SSE `tool_executed` event).
+   *
+   * The returned array is a new structure — the input is NOT mutated
+   * so persistence keeps the full payload.
+   */
+  private stripDisplayForLLM(messages: ModelMessage[]): ModelMessage[] {
+    return messages.map((msg) => {
+      if (msg.role !== 'tool' || !Array.isArray(msg.content)) return msg
+      let changed = false
+      const nextContent = (msg.content as unknown[]).map((part) => {
+        if (
+          !part ||
+          typeof part !== 'object' ||
+          (part as { type?: unknown }).type !== 'tool-result'
+        ) {
+          return part
+        }
+        const tr = part as { output?: unknown }
+        if (
+          !tr.output ||
+          typeof tr.output !== 'object' ||
+          (tr.output as { type?: unknown }).type !== 'json'
+        ) {
+          return part
+        }
+        const wrapped = tr.output as { type: 'json'; value?: unknown }
+        const value = wrapped.value
+        if (
+          !value ||
+          typeof value !== 'object' ||
+          !('display' in (value as object))
+        ) {
+          return part
+        }
+        changed = true
+        const { display: _stripped, ...rest } = value as {
+          display?: unknown
+          [k: string]: unknown
+        }
+        return {
+          ...(part as object),
+          output: { ...wrapped, value: rest },
+        }
+      })
+      return changed
+        ? ({ ...msg, content: nextContent } as unknown as ModelMessage)
+        : msg
+    })
+  }
+
+  /**
+   * Incrementally flush any session messages added since the last persist.
+   * Idempotent — repeated calls without new messages are a no-op. Used
+   * by the agent loop after each assistant commit and after each tool
+   * result so a mid-turn crash leaves the conversation log consistent
+   * with what the user actually saw (task 11 / S1).
+   *
+   * Errors are logged and swallowed: persistence is best-effort and must
+   * never break the live SSE stream.
+   */
+  private async persistTurnSoFar(session: Session): Promise<void> {
+    if (!session.conversationId) return
+    const from = session.lastPersistedIndex ?? 0
+    if (from >= session.messages.length) return
+    const slice = session.messages.slice(from)
+    try {
+      await this.conversationService.appendMessages(session.conversationId, slice)
+      session.lastPersistedIndex = session.messages.length
+    } catch (err) {
+      this.logger.warn(
+        `Partial-turn persist failed for conversation ${session.conversationId}: ${(err as Error).message}`,
+      )
+    }
+  }
+
+  /**
    * Resolve the `ai` SDK model. Cached after the first successful call.
    * Throws a clear error if `KIMI_K2_API_KEY` is missing — this is only
    * reached by the real runner, never by tests that swap in a stub.
@@ -157,6 +244,12 @@ export class ChatService {
     const systemPrompt = buildSystemPrompt(walletCtx)
     // Capture the message count at the start of this turn for persistence (task 07)
     const turnStartMessageCount = priorMessageCount ?? session.messages.length
+    // Seed the incremental-persist watermark (task 11 / S1). Subsequent
+    // flushes only write `messages.slice(lastPersistedIndex)` so duplicate
+    // saves at the end of the turn are no-ops.
+    if (session.lastPersistedIndex === undefined) {
+      session.lastPersistedIndex = turnStartMessageCount
+    }
 
     // Fetch MCP tools once per turn. After protocol v1.1 §11 the MCP
     // subprocess is a bare diagnostic template (`owner`, `calculator`)
@@ -190,7 +283,7 @@ export class ChatService {
       try {
         call = this.modelRunner({
           model: this.getModel(),
-          messages: session.messages,
+          messages: this.stripDisplayForLLM(session.messages),
           tools: allTools,
           system: systemPrompt,
         })
@@ -275,22 +368,20 @@ export class ChatService {
           ],
         }
         session.messages.push(assistantMessage)
+        // Flush this assistant message immediately (task 11). If the SSE
+        // stream is killed before we get a `tool_result` back, the partial
+        // turn still survives in the conversation log instead of vanishing.
+        await this.persistTurnSoFar(session)
       }
 
       if (toolCalls.length === 0) {
         session.state = 'idle'
 
-        // Persist new messages for this turn (task 07)
-        if (session.conversationId) {
-          const newMessages = session.messages.slice(turnStartMessageCount)
-          try {
-            await this.conversationService.appendMessages(session.conversationId, newMessages)
-          } catch (err) {
-            this.logger.warn(
-              `Failed to persist messages for conversation ${session.conversationId}: ${(err as Error).message}`,
-            )
-          }
-        }
+        // End-of-turn persist — idempotent because `persistTurnSoFar`
+        // tracks `lastPersistedIndex` and only writes new messages.
+        // Replaces the previous slice-from-turnStart write (task 07) with
+        // the incremental path from task 11.
+        await this.persistTurnSoFar(session)
 
         yield {
           event: 'done',
@@ -398,6 +489,9 @@ export class ChatService {
           error: message,
         }),
       )
+      // Even errors are persisted incrementally (task 11) so a reload
+      // shows the same failure state the agent reasoned over.
+      await this.persistTurnSoFar(session)
       yield {
         event: 'tool_executed',
         data: {
@@ -414,6 +508,9 @@ export class ChatService {
     session.messages.push(
       toolResultMessage(tc.toolCallId, tc.toolName, transformForAgent(rawResult)),
     )
+    // Incremental persist (task 11): a server-tool result is a stable
+    // checkpoint — flush so the next mid-turn crash doesn't lose it.
+    await this.persistTurnSoFar(session)
 
     yield {
       event: 'tool_executed',
@@ -469,6 +566,13 @@ export class ChatService {
       { timeoutMs: MOBILE_RESULT_TIMEOUT_MS },
     )
 
+    // Stamp the moment we entered awaiting state. Used by
+    // `buildReconnectResponse` (task 12) to decide whether replayed
+    // pending payloads should carry an `interrupted_at` hint.
+    if (!session.awaitingMobileSince) {
+      session.awaitingMobileSince = new Date()
+    }
+
     yield { event: 'tool_pending', data: payload }
 
     let mobileResult: MobileResponse
@@ -477,6 +581,20 @@ export class ChatService {
     } catch (err) {
       if (err instanceof TimeoutError) {
         session.state = 'idle'
+        // Task 12 / S2: write a deterministic interrupted marker into
+        // the conversation log so historical replay renders this call
+        // as `⚠︎ Interrupted` without inferring from absence. The
+        // translator (task 02) maps `status: 'failed' + error:
+        // 'interrupted'` to `state: 'output-error'` + `error: 'interrupted'`.
+        session.messages.push(
+          toolResultMessage(tc.toolCallId, tc.toolName, {
+            status: 'approved_but_failed',
+            error: 'interrupted',
+          }),
+        )
+        // Flush the orphan + interrupted marker so the reload state is
+        // consistent with what we just told the live client.
+        await this.persistTurnSoFar(session)
         yield {
           event: 'error',
           data: {
@@ -508,7 +626,12 @@ export class ChatService {
 
     const agentResult = buildAgentToolResult(mobileResult)
     session.messages.push(toolResultMessage(tc.toolCallId, tc.toolName, agentResult))
+    // Mobile tool resolved — clear the awaiting watermark so a later
+    // reconnect doesn't mistakenly mark this call as interrupted (task 12).
+    session.awaitingMobileSince = undefined
     session.state = 'streaming'
+    // Incremental persist (task 11): a tool result is a stable checkpoint.
+    await this.persistTurnSoFar(session)
     return 'ok'
   }
 
@@ -704,8 +827,21 @@ export class ChatService {
         },
       })
     } else if (session.state === 'awaiting_mobile') {
+      // Task 12 / S2: if the awaiting watermark is older than the
+      // executor timeout, mark replayed payloads as `interrupted_at` so
+      // the client can render them as terminal `⚠︎ Interrupted` rather
+      // than guessing from the absence of a tool-result.
+      const interruptedAt =
+        session.awaitingMobileSince &&
+        Date.now() - session.awaitingMobileSince.getTime() >
+          MOBILE_RESULT_TIMEOUT_MS
+          ? new Date().toISOString()
+          : undefined
       for (const payload of session.pendingPayloads.values()) {
-        events.push({ event: 'tool_pending', data: payload })
+        const enriched = interruptedAt
+          ? { ...payload, interrupted_at: interruptedAt }
+          : payload
+        events.push({ event: 'tool_pending', data: enriched })
       }
     } else if (session.state === 'streaming') {
       // No-op: the real agent loop (started by the original POST /chat)
@@ -735,12 +871,21 @@ export function buildAgentToolResult(
   mobileResult: MobileResponse,
 ): AgentToolResult {
   if (mobileResult.type === 'tool_result') {
-    const r = mobileResult.result
+    const r = mobileResult.result as {
+      status: 'success' | 'failed'
+      tx_hash?: `0x${string}`
+      data?: unknown
+      display?: unknown
+      error?: string
+    }
     if (r.status === 'success') {
       return {
         status: 'approved_and_executed',
         tx_hash: r.tx_hash,
         data: r.data,
+        // Forward the UI-facing slice onto the persisted payload.
+        // Stripped from the LLM prompt by `stripDisplayForLLM`.
+        ...(r.display !== undefined ? { display: r.display } : {}),
       }
     }
     return {

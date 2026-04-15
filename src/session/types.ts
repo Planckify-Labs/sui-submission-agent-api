@@ -65,6 +65,17 @@ export interface ToolPendingPayload {
     human_summary: string
     amount_usd?: number
   }
+  /**
+   * Optional ISO timestamp set by `buildReconnectResponse` (task 12 / S2)
+   * when the server can prove the tool call is dead — e.g. the original
+   * stream exited without a `tool_result` and the deadline has elapsed.
+   *
+   * Additive: existing clients that ignore this field continue to render
+   * the call as still-pending. The mobile translator (task 02) will fold
+   * this into `state: 'output-error'` so historical replay shows
+   * "⚠︎ Interrupted" deterministically rather than via a time-based guess.
+   */
+  interrupted_at?: string
 }
 
 /**
@@ -146,6 +157,19 @@ export interface Session {
    * tool (e.g. timer misfire or retried hint).
    */
   delayHintsSent?: Set<string>
+  /**
+   * Index into `messages` past which entries have NOT yet been written to
+   * the persisted conversation (task 11 / S1). Lets the agent loop flush
+   * partial turns incrementally and idempotently — a re-flush only writes
+   * messages added since the last persist.
+   */
+  lastPersistedIndex?: number
+  /**
+   * Marks the session as having entered `awaiting_mobile` state. Used by
+   * `buildReconnectResponse` (task 12) to decide whether replayed
+   * `tool_pending` payloads should carry an `interrupted_at` hint.
+   */
+  awaitingMobileSince?: Date
 }
 
 /**
