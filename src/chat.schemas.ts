@@ -9,14 +9,21 @@ import { z } from 'zod'
  * Wallet context injected by mobile when starting a new turn. See §8.2.
  * Mirrors `WalletContext` in `src/session/types.ts`; kept here as a Zod
  * schema so the controller can validate without a runtime import cycle.
+ *
+ * The address is accepted as a raw string. EVM clients send
+ * `0x`-prefixed hex; Solana clients send a base58 public key. The
+ * `namespace` discriminator is the authoritative source — legacy EVM
+ * clients may omit it, in which case `"eip155"` is assumed.
+ *
+ * `chain_id` is kept as a non-negative integer so Solana can send `0`
+ * (EVM chain ids are always positive).
  */
-const hexAddressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/) as z.ZodType<
-  `0x${string}`
->
+const walletAddressSchema = z.string().min(1).max(128)
 
 export const walletContextSchema = z.object({
-  address: hexAddressSchema,
-  chain_id: z.number().int().positive(),
+  address: walletAddressSchema,
+  namespace: z.enum(['eip155', 'solana']).optional(),
+  chain_id: z.number().int().nonnegative(),
   chain_name: z.string().min(1),
   chain_symbol: z.string().min(1),
   label: z.string().optional(),

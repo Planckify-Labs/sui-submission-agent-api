@@ -97,6 +97,17 @@ const TX_HASH_PROP: JsonSchemaProperty = {
   description: '32-byte transaction hash, 0x-prefixed hex.',
 };
 
+// ─── Solana primitives ────────────────────────────────────────────────────────
+
+// Solana public keys / addresses are base58, 32-44 chars, excluding 0 O I l.
+const SOLANA_ADDRESS_PATTERN = '^[1-9A-HJ-NP-Za-km-z]{32,44}$';
+
+const SOLANA_ADDRESS_PROP = (description: string): JsonSchemaProperty => ({
+  type: 'string',
+  pattern: SOLANA_ADDRESS_PATTERN,
+  description,
+});
+
 /**
  * Tool result shapes are **normative as of protocol v1.1** — see
  * `src/tools/result-shapes.ts` for the canonical `ToolResult.data` types and
@@ -917,6 +928,79 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
         },
       },
       required: [],
+      additionalProperties: false,
+    },
+  },
+
+  // ─── Mobile / blockchain_read — Solana native ─────────────────────────────
+  // These are the Solana-namespaced siblings of `get_wallet_balance` /
+  // `get_balance` / `send_native_token`. The agent picks between them by
+  // reading `wallet_context.namespace`: `eip155` → EVM tools, `solana` →
+  // these. No `chain_id` — the Solana cluster is carried on the session
+  // via `wallet_context` and resolved by the mobile executor.
+  get_wallet_sol_balance: {
+    name: 'get_wallet_sol_balance',
+    category: 'blockchain_read',
+    executor: 'mobile',
+    capability: 'read',
+    description:
+      "Read the connected mobile wallet's native SOL balance on the " +
+      'active Solana cluster. Use this when wallet_context.namespace is ' +
+      '"solana" — do NOT use get_wallet_balance (that is EVM-only).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  get_sol_balance: {
+    name: 'get_sol_balance',
+    category: 'blockchain_read',
+    executor: 'mobile',
+    capability: 'read',
+    description:
+      'Read the native SOL balance of an arbitrary Solana address on ' +
+      'the active cluster. Use this when wallet_context.namespace is ' +
+      '"solana". For EVM addresses use get_balance instead.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        address: SOLANA_ADDRESS_PROP(
+          'Base58 Solana public key (32-44 chars). Defaults to the connected wallet address when omitted.',
+        ),
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+
+  // ─── Mobile / blockchain_write — Solana native ────────────────────────────
+  send_sol: {
+    name: 'send_sol',
+    category: 'blockchain_write',
+    executor: 'mobile',
+    capability: 'write',
+    description:
+      'Send native SOL from the connected mobile wallet to another ' +
+      'Solana address. Use this when wallet_context.namespace is ' +
+      '"solana"; for EVM native transfers use send_native_token instead. ' +
+      'Provide `amount_sol` as a human-readable decimal string (e.g. ' +
+      '"0.01"); the mobile converts to lamports internally. The user ' +
+      'confirms the transfer on the mobile approval sheet before it is ' +
+      'broadcast.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        to: SOLANA_ADDRESS_PROP('Recipient Solana address (base58 public key).'),
+        amount_sol: {
+          type: 'string',
+          pattern: '^[0-9]+(\\.[0-9]+)?$',
+          description:
+            'Amount of SOL to send, as a decimal string. Must be greater than zero.',
+        },
+      },
+      required: ['to', 'amount_sol'],
       additionalProperties: false,
     },
   },

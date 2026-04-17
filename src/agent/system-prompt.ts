@@ -9,6 +9,11 @@
 
 export interface WalletContext {
   address: string;
+  /**
+   * Chain namespace the wallet is active on. Legacy clients may omit
+   * this; default to `"eip155"` when absent.
+   */
+  namespace?: "eip155" | "solana";
   label?: string;
   chain_id: number;
   chain_name: string;
@@ -95,10 +100,21 @@ export function buildWalletContextPrompt(ctx: WalletContext): string {
     ? 'Points service: authenticated — you MAY call auth-required points and redemption tools directly.'
     : 'Points service: NOT authenticated — before calling any auth-required points or redemption tool, you MUST first call `request_authentication` so the user can log in. Do not attempt those tools until authentication succeeds.';
 
+  // For EVM the chain_id is meaningful to the agent (viem argument for
+  // several tools). For non-EVM chains the mobile sends `chain_id: 0`
+  // as a sentinel — drop it from the prompt and surface the namespace
+  // instead so the model has a real identifier. No prescriptive
+  // behavior language here: let the model read the context and decide.
+  const namespace = ctx.namespace ?? 'eip155';
+  const chainLine =
+    namespace === 'eip155'
+      ? `Active chain: ${ctx.chain_name} (${ctx.chain_symbol}, chain_id: ${ctx.chain_id})`
+      : `Active chain: ${ctx.chain_name} (${ctx.chain_symbol}, namespace: ${namespace})`;
+
   return `
 ## Connected Wallet
 Address: ${ctx.address}${ctx.label ? ` (${ctx.label})` : ''}
-Active chain: ${ctx.chain_name} (${ctx.chain_symbol}, chain_id: ${ctx.chain_id})
+${chainLine}
 ${authLine}
 
 All onchain actions are executed by the mobile app.

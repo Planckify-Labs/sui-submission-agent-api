@@ -20,9 +20,18 @@ export type ExternalSseEvent = { event: string; data: unknown }
 /**
  * Wallet context injected by mobile on `POST /chat`. See §8.2.
  * The server never stores private keys or seed phrases.
+ *
+ * `address` is a raw string so both EVM (`0x`-hex) and Solana (base58)
+ * public keys fit. `namespace` is the authoritative discriminator —
+ * omitted by legacy EVM clients and defaulted to `"eip155"`.
+ *
+ * `chain_id` is kept as a plain `number`. EVM chains send their viem
+ * chain id; non-EVM chains send `0` — the server only reads it for
+ * system-prompt display and conversation stamping.
  */
 export interface WalletContext {
-  address: `0x${string}`
+  address: string
+  namespace?: 'eip155' | 'solana'
   chain_id: number
   chain_name: string
   chain_symbol: string
@@ -128,7 +137,7 @@ export interface Deferred<T> {
 export interface Session {
   id: string
   messages: ModelMessage[]
-  wallet_address: `0x${string}`
+  wallet_address: string
   chain_id: number
   wallet_context: WalletContext
   state: SessionState

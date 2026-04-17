@@ -16,7 +16,11 @@ import { ApiKeyGuard } from '../guards/api-key.guard'
 import { ConversationService } from './conversation.service'
 import type { ConversationSummary } from './conversation.types'
 
-const ethereumAddressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Invalid Ethereum address')
+// Accepts either an EVM `0x`-hex address or a Solana base58 public key.
+// Kept permissive (min/max only) because the history endpoints only
+// use the value as an opaque lookup key — format validation is the
+// wallet's job at sign time.
+const ethereumAddressSchema = z.string().min(1).max(128)
 
 const listConversationsSchema = z.object({
   wallet_address: ethereumAddressSchema,

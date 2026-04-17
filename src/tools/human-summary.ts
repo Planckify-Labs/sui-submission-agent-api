@@ -112,6 +112,15 @@ export function buildHumanSummary(
       return `Send ${amount} ETH to ${to} on ${chain}`;
     }
 
+    // send_sol: Solana-native transfer. `amount_sol` is a human-readable
+    // decimal string; the Solana address is base58 so we fall back to the
+    // generic address truncator (it works on any string long enough).
+    case 'send_sol': {
+      const amount = str(input, 'amount_sol');
+      const to = truncateAddress(input.to);
+      return `Send ${amount} SOL to ${to}`;
+    }
+
     // transfer_erc20: ERC20 transfer with token symbol. `amount` is already a
     // human-readable token amount (ERC20 decimals are handled upstream).
     case 'transfer_erc20': {
@@ -169,6 +178,10 @@ export function buildHumanSummary(
     // stub them out here as simple labels.
     case 'get_wallet_tokens':
       return 'Fetch wallet token list';
+    case 'get_sol_balance':
+      return 'Fetch Solana address balance';
+    case 'get_wallet_sol_balance':
+      return 'Fetch connected wallet SOL balance';
     case 'get_redemption_categories':
       return 'Fetch redemption categories';
     case 'get_redemption_catalog':

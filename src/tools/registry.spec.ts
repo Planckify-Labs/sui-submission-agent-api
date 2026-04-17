@@ -217,6 +217,13 @@ describe('TOOL_REGISTRY', () => {
       { name: 'get_address_book', category: 'utility', executor: 'mobile', capability: 'read' },
       { name: 'get_address_book_entry', category: 'utility', executor: 'mobile', capability: 'read' },
       { name: 'search_address_book', category: 'utility', executor: 'mobile', capability: 'read' },
+
+      // Mobile / blockchain_read — Solana native
+      { name: 'get_wallet_sol_balance', category: 'blockchain_read', executor: 'mobile', capability: 'read' },
+      { name: 'get_sol_balance', category: 'blockchain_read', executor: 'mobile', capability: 'read' },
+
+      // Mobile / blockchain_write — Solana native
+      { name: 'send_sol', category: 'blockchain_write', executor: 'mobile', capability: 'write' },
     ];
 
     for (const expectedMeta of expected) {
