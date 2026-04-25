@@ -1005,6 +1005,77 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
     },
   },
 
+  // ─── Mobile / blockchain_write — Solana TakumiPay ───────────────────────
+  execute_booking_sol: {
+    name: 'execute_booking_sol',
+    category: 'blockchain_write',
+    executor: 'mobile',
+    capability: 'write',
+    description:
+      'Submit a product purchase transaction on the TakumiPay Solana program ' +
+      '(createTransactionSol/Token). Use this when wallet_context.namespace is ' +
+      '"solana" and the user wants to pay for a product/booking — for EVM use ' +
+      'execute_booking instead.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        booking_id: {
+          type: 'string',
+          description: 'Booking UUID from the backend.',
+        },
+        exchange_rate_id: {
+          type: 'string',
+          description: 'Exchange rate ID from the backend.',
+        },
+        product_variant_id: {
+          type: 'string',
+          description: 'Product variant UUID.',
+        },
+        ref_id: {
+          type: 'string',
+          description: 'Unique reference ID for idempotency.',
+        },
+        amount: {
+          type: 'string',
+          description: 'Amount in token minor units (decimal string).',
+        },
+        token_mint: SOLANA_ADDRESS_PROP(
+          'SPL token mint address (base58). Omit for native SOL.',
+        ),
+      },
+      required: ['booking_id', 'exchange_rate_id', 'product_variant_id', 'ref_id', 'amount'],
+      additionalProperties: false,
+    },
+  },
+  deposit_points_sol: {
+    name: 'deposit_points_sol',
+    category: 'points',
+    executor: 'mobile',
+    capability: 'write',
+    description:
+      'Deposit SPL tokens into the TakumiPay Solana program to earn points. ' +
+      'Use this when wallet_context.namespace is "solana" — for EVM use ' +
+      'deposit_points instead. ALWAYS call get_points_price first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        token_mint: SOLANA_ADDRESS_PROP('SPL token mint address (base58).'),
+        token_amount: {
+          type: 'string',
+          description:
+            'Human-readable token amount (e.g. "100"). NOT lamports.',
+        },
+        expected_points: {
+          type: 'string',
+          description:
+            'Expected points from get_points_price, shown in approval summary.',
+        },
+      },
+      required: ['token_mint', 'token_amount', 'expected_points'],
+      additionalProperties: false,
+    },
+  },
+
   // ─── Mobile / points — capability `simulate` ───────────────────────────────
   request_authentication: {
     name: 'request_authentication',
