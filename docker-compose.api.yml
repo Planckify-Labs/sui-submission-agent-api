@@ -18,6 +18,16 @@ services:
       KIMI_K2_API_KEY: ${KIMI_K2_API_KEY}
       # API Auth
       CHAT_API_KEY: ${CHAT_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # TakumiPay integration
+      TAKUMIPAY_API_URL: ${TAKUMIPAY_API_URL}
+      TAKUMIPAY_API_KEY: ${TAKUMIPAY_API_KEY}
+      # Agent wallet
+      AGENT_WALLET_PRIVATE_KEY: ${AGENT_WALLET_PRIVATE_KEY}
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION_TIME: ${JWT_EXPIRATION_TIME:-1h}
+      REFRESH_TOKEN_EXPIRATION_TIME: ${REFRESH_TOKEN_EXPIRATION_TIME:-7d}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:7200/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
