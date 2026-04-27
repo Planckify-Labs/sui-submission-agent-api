@@ -975,6 +975,57 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
     },
   },
 
+  get_wallet_spl_tokens: {
+    name: 'get_wallet_spl_tokens',
+    category: 'blockchain_read',
+    executor: 'mobile',
+    capability: 'read',
+    description:
+      'Return the supported SPL token list for the active Solana cluster, ' +
+      'sourced from the backend token registry — the Solana counterpart to ' +
+      'get_wallet_tokens (which is EVM-only). Each row carries symbol, name, ' +
+      'mint address (contractAddress), decimals, is_native / is_stable_coin ' +
+      'flags, optional pegged_currency, and (when `include_balance: true`) ' +
+      'the live on-chain SPL token balance. Use this when ' +
+      'wallet_context.namespace is "solana" to resolve a token symbol ' +
+      '(e.g. "USDC", "USDT") to its mint address before calling send_spl_token, ' +
+      'or to answer "what tokens do I hold on Solana?". Native SOL is included ' +
+      'as a pseudo-row with is_native: true unless excluded. DO NOT report ' +
+      'balance as zero when the result set is empty for a queried symbol.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        include_balance: {
+          type: 'boolean',
+          description:
+            'If true, resolve live on-chain balances for each SPL token ' +
+            'via the Solana RPC. Balance fields (balance_lamports, balance_display) ' +
+            'are omitted for tokens whose account lookup fails.',
+        },
+        symbol: {
+          type: 'string',
+          description:
+            'Optional filter: only return tokens whose symbol matches ' +
+            '(case-insensitive prefix or exact match).',
+        },
+        is_stable_coin: {
+          type: 'boolean',
+          description:
+            'If true, return only stablecoin SPL tokens (USDC, USDT, …). ' +
+            'If false, return only non-stablecoin tokens. Omit to return all.',
+        },
+        is_native_currency: {
+          type: 'boolean',
+          description:
+            'If true (default), include native SOL as the first row. ' +
+            'If false, exclude it and return SPL-only tokens.',
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+
   // ─── Mobile / blockchain_write — Solana native ────────────────────────────
   send_sol: {
     name: 'send_sol',
