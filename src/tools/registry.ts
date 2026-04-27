@@ -1056,6 +1056,49 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
     },
   },
 
+  send_spl_token: {
+    name: 'send_spl_token',
+    category: 'blockchain_write',
+    executor: 'mobile',
+    capability: 'write',
+    description:
+      'Transfer an SPL token (classic Token Program or Token-2022) from the ' +
+      'connected mobile wallet to a recipient on Solana. Use this when ' +
+      'wallet_context.namespace is "solana" and the user wants to send a ' +
+      'non-native token — for native SOL use send_sol instead. ' +
+      'ALWAYS obtain mint_address from get_wallet_spl_tokens — never guess it. ' +
+      'Provide token_amount (human-readable, e.g. "10.5") and token_decimals ' +
+      '(from get_wallet_spl_tokens, e.g. 6 for USDC) so the mobile can call ' +
+      'parseUnits internally — do NOT compute raw amounts yourself. ' +
+      'The kit auto-detects whether the mint belongs to the classic Token ' +
+      'Program or Token-2022 so no program discriminator is needed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        to: SOLANA_ADDRESS_PROP('Recipient Solana address (base58 public key).'),
+        mint_address: SOLANA_ADDRESS_PROP(
+          'SPL token mint address (base58) from get_wallet_spl_tokens.',
+        ),
+        token_amount: {
+          type: 'string',
+          pattern: '^[0-9]+(\\.[0-9]+)?$',
+          description:
+            'Human-readable transfer amount, e.g. "10.5". ' +
+            'The mobile calls parseUnits(token_amount, token_decimals) internally.',
+        },
+        token_decimals: {
+          type: 'integer',
+          description:
+            'Decimal places for this token (from get_wallet_spl_tokens). ' +
+            'e.g. 6 for USDC, 9 for most SPL tokens.',
+          minimum: 0,
+        },
+      },
+      required: ['to', 'mint_address', 'token_amount', 'token_decimals'],
+      additionalProperties: false,
+    },
+  },
+
   // ─── Mobile / blockchain_write — Solana TakumiPay ───────────────────────
   execute_booking_sol: {
     name: 'execute_booking_sol',
