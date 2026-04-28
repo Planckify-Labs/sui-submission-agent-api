@@ -283,7 +283,9 @@ export class ChatService {
       try {
         call = this.modelRunner({
           model: this.getModel(),
-          messages: this.stripDisplayForLLM(session.messages),
+          messages: this.stripDisplayForLLM(
+            sanitizeOrphanedToolCalls(session.messages),
+          ),
           tools: allTools,
           system: systemPrompt,
         })
@@ -404,7 +406,8 @@ export class ChatService {
       // tool call sequentially — including reads — to keep the control
       // flow obvious. Revisit once the mobile SDK can handle multiple
       // in-flight `tool_pending` events.
-      for (const tc of toolCalls) {
+      for (let i = 0; i < toolCalls.length; i++) {
+        const tc = toolCalls[i]
         const meta = TOOL_REGISTRY[tc.toolName]
 
         if (meta && meta.executor === 'server') {
@@ -428,7 +431,22 @@ export class ChatService {
           resolvedMeta,
         )
         if (pendingResult === 'timeout') {
-          // Loop already yielded the error event and set state.
+          // Pair every remaining tool_call with an interrupted marker.
+          // Otherwise the assistant message keeps orphaned tool_call_ids
+          // and the next streamText against this session is rejected by
+          // OpenAI-compatible providers with a 400.
+          let appended = false
+          for (let j = i + 1; j < toolCalls.length; j++) {
+            const remaining = toolCalls[j]
+            session.messages.push(
+              toolResultMessage(remaining.toolCallId, remaining.toolName, {
+                status: 'approved_but_failed',
+                error: 'interrupted',
+              }),
+            )
+            appended = true
+          }
+          if (appended) await this.persistTurnSoFar(session)
           return
         }
       }
@@ -612,6 +630,17 @@ export class ChatService {
         `awaitMobileResult failed for ${tc.toolCallId}: ${message}`,
       )
       session.state = 'idle'
+      // Pair the assistant tool_call with a result so the persisted
+      // history isn't left with an orphaned tool_call_id. Without this,
+      // OpenAI-compatible providers (Moonshot/Kimi included) reject the
+      // next streamText request with a 400.
+      session.messages.push(
+        toolResultMessage(tc.toolCallId, tc.toolName, {
+          status: 'approved_but_failed',
+          error: message,
+        }),
+      )
+      await this.persistTurnSoFar(session)
       yield {
         event: 'error',
         data: {
@@ -973,6 +1002,106 @@ function progressLabel(meta: ToolMeta): string {
     default:
       return 'Working…'
   }
+}
+
+/**
+ * Defensive: every assistant `tool-call` must be followed by a matching
+ * `tool-result`, otherwise OpenAI-compatible providers (Moonshot/Kimi
+ * included) reject the request with a 400. Older sessions persisted
+ * before the loop's bail-out fix can carry orphaned tool_calls; this
+ * pass injects a synthetic `interrupted` result for any unmatched id
+ * immediately after the assistant message that emitted it.
+ *
+ * Returns a new array; the input is not mutated. Sessions without
+ * orphans pay only a single linear scan.
+ */
+function sanitizeOrphanedToolCalls(messages: ModelMessage[]): ModelMessage[] {
+  let needsRewrite = false
+  for (let i = 0; i < messages.length && !needsRewrite; i++) {
+    const msg = messages[i]
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue
+    const ids: Array<{ toolCallId: string; toolName: string }> = []
+    for (const part of msg.content as unknown[]) {
+      if (
+        part &&
+        typeof part === 'object' &&
+        (part as { type?: unknown }).type === 'tool-call'
+      ) {
+        const tc = part as { toolCallId?: unknown; toolName?: unknown }
+        if (typeof tc.toolCallId === 'string' && typeof tc.toolName === 'string') {
+          ids.push({ toolCallId: tc.toolCallId, toolName: tc.toolName })
+        }
+      }
+    }
+    if (ids.length === 0) continue
+    const answered = new Set<string>()
+    for (let j = i + 1; j < messages.length; j++) {
+      const next = messages[j]
+      if (next.role !== 'tool' || !Array.isArray(next.content)) break
+      for (const part of next.content as unknown[]) {
+        if (
+          part &&
+          typeof part === 'object' &&
+          (part as { type?: unknown }).type === 'tool-result'
+        ) {
+          const id = (part as { toolCallId?: unknown }).toolCallId
+          if (typeof id === 'string') answered.add(id)
+        }
+      }
+    }
+    if (ids.some((x) => !answered.has(x.toolCallId))) {
+      needsRewrite = true
+    }
+  }
+  if (!needsRewrite) return messages
+
+  const out: ModelMessage[] = []
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    out.push(msg)
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue
+    const ids: Array<{ toolCallId: string; toolName: string }> = []
+    for (const part of msg.content as unknown[]) {
+      if (
+        part &&
+        typeof part === 'object' &&
+        (part as { type?: unknown }).type === 'tool-call'
+      ) {
+        const tc = part as { toolCallId?: unknown; toolName?: unknown }
+        if (typeof tc.toolCallId === 'string' && typeof tc.toolName === 'string') {
+          ids.push({ toolCallId: tc.toolCallId, toolName: tc.toolName })
+        }
+      }
+    }
+    if (ids.length === 0) continue
+    const answered = new Set<string>()
+    let scan = i + 1
+    while (scan < messages.length) {
+      const next = messages[scan]
+      if (next.role !== 'tool' || !Array.isArray(next.content)) break
+      for (const part of next.content as unknown[]) {
+        if (
+          part &&
+          typeof part === 'object' &&
+          (part as { type?: unknown }).type === 'tool-result'
+        ) {
+          const id = (part as { toolCallId?: unknown }).toolCallId
+          if (typeof id === 'string') answered.add(id)
+        }
+      }
+      scan++
+    }
+    for (const x of ids) {
+      if (answered.has(x.toolCallId)) continue
+      out.push(
+        toolResultMessage(x.toolCallId, x.toolName, {
+          status: 'approved_but_failed',
+          error: 'interrupted',
+        }),
+      )
+    }
+  }
+  return out
 }
 
 /**
