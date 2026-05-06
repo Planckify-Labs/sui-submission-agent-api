@@ -22,7 +22,7 @@ const walletAddressSchema = z.string().min(1).max(128)
 
 export const walletContextSchema = z.object({
   address: walletAddressSchema,
-  namespace: z.enum(['eip155', 'solana']).optional(),
+  namespace: z.enum(['eip155', 'solana', 'sui']).optional(),
   chain_id: z.number().int().nonnegative(),
   chain_name: z.string().min(1),
   chain_symbol: z.string().min(1),

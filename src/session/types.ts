@@ -31,7 +31,7 @@ export type ExternalSseEvent = { event: string; data: unknown }
  */
 export interface WalletContext {
   address: string
-  namespace?: 'eip155' | 'solana'
+  namespace?: 'eip155' | 'solana' | 'sui'
   chain_id: number
   chain_name: string
   chain_symbol: string

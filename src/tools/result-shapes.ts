@@ -381,6 +381,134 @@ export type GetRedemptionHistoryResult = {
   has_more: boolean;
 };
 
+// ─── Sui native shapes ────────────────────────────────────────────────────
+//
+// Sui digests are base58, not 0x-hex. Write tools therefore return the
+// digest in `data.digest` instead of populating the wire-typed `tx_hash`
+// field (regex-validated as 0x-hex server-side). Same constraint as Solana
+// signatures.
+//
+// MIST is Sui's smallest unit: 1 SUI = 1e9 MIST. Like the EVM `*_wei` and
+// Solana `*_lamports` fields, `*_mist` is base-10 string per protocol §8.
+
+/**
+ * `get_wallet_sui_balance` / `get_sui_balance`
+ * Native SUI balance for the connected wallet (or an arbitrary address)
+ * on the active Sui network.
+ *
+ * Emits the unified `WalletBalancesPayload` shape with a single group
+ * containing the native SUI row, so `BalancesCard` renders it through
+ * the same path as EVM and Solana single-balance reads. Agent rule:
+ * read `balance_display` for user-facing reporting; never divide
+ * `balance_raw` (MIST) by 1e9 in your head.
+ */
+export type GetSuiBalanceResult = {
+  groups: Array<{
+    namespace: 'sui';
+    /** Sui network identifier ("mainnet", "testnet", "devnet"). */
+    chain_id: string;
+    /** Display label, e.g. "Sui Mainnet". */
+    chain_label: string;
+    chain_symbol: 'SUI';
+    tokens: Array<{
+      symbol: 'SUI';
+      name: 'Sui';
+      /** Empty string for native — matches EVM/Solana convention. */
+      address: '';
+      /** Always 9 for SUI. */
+      decimals: 9;
+      is_native: true;
+      is_stable_coin: false;
+      /** Base-10 string (MIST). Used only for exact arithmetic. */
+      balance_raw: string;
+      /** Human-readable balance already formatted to 9 decimals. */
+      balance_display: string;
+    }>;
+  }>;
+};
+
+/**
+ * `get_wallet_sui_coins`
+ *
+ * Coin<T> list for the active Sui network, optionally filtered by symbol /
+ * stablecoin / native-currency status, with optional live balances.
+ *
+ * Emits the unified `WalletBalancesPayload` shape under the `display`
+ * field (the same shape EVM `get_wallet_tokens` and Solana
+ * `get_wallet_spl_tokens` use), so a single `BalancesCard` renders all
+ * three. The agent slice (`data`) is a compact projection.
+ *
+ * Notes:
+ *  - On Sui the row's `address` field carries the Move struct path
+ *    (`0x{addr}::{module}::{Name}`) — this is Sui's coin type identifier.
+ *    Native SUI appears with `is_native: true` and `address:
+ *    "0x2::sui::SUI"`.
+ *  - `balance_raw` / `balance_display` are present iff the caller passed
+ *    `include_balance: true`. `balance_raw` is a base-10 string of MIST
+ *    (or the coin's minor unit) per §8; `balance_display` is already
+ *    scaled to `decimals`.
+ */
+export type GetSuiWalletCoinsResult = {
+  groups: Array<{
+    namespace: 'sui';
+    /** Sui network identifier (e.g. "mainnet", "testnet", "devnet"). */
+    chain_id: string;
+    /** Display label, e.g. "Sui Mainnet". */
+    chain_label: string;
+    chain_symbol: 'SUI';
+    tokens: Array<{
+      symbol: string;
+      name?: string;
+      /** Move struct path `0x{addr}::{module}::{Name}` — Sui's coin type. */
+      address: string;
+      decimals: number;
+      is_native: boolean;
+      is_stable_coin: boolean;
+      logo_url?: string;
+      pegged_currency?: string;
+      /** Base-10 string (coin minor units). Present iff `include_balance` was true. */
+      balance_raw?: string;
+      /** Formatted to `decimals`. Present iff `balance_raw` is present. */
+      balance_display?: string;
+    }>;
+  }>;
+};
+
+/**
+ * `send_sui` — terminal result of a native SUI transfer.
+ *
+ * IMPORTANT: `digest` is base58, not 0x-hex. Do NOT expect `tx_hash`.
+ */
+export type SendSuiResult = {
+  /** Base58 transaction digest. */
+  digest: string;
+  to: string;
+  network: string;
+  /** Base-10 string (MIST). */
+  amount_mist: string;
+  /** Human-readable amount as supplied by the agent. */
+  amount_sui: string;
+};
+
+/**
+ * `send_sui_coin` — terminal result of a non-native Coin<T> transfer.
+ *
+ * IMPORTANT: `digest` is base58, not 0x-hex. Do NOT expect `tx_hash`.
+ */
+export type SendSuiCoinResult = {
+  /** Base58 transaction digest. */
+  digest: string;
+  to: string;
+  /** Move struct path `0x{addr}::{module}::{Name}`. */
+  coin_type: string;
+  network: string;
+  /** Base-10 string (coin minor units). */
+  amount_raw: string;
+  /** Human-readable amount as supplied by the agent. */
+  token_amount: string;
+  decimals: number;
+};
+
 /**
  * `request_authentication` — user-facing login flow (§13).
  *

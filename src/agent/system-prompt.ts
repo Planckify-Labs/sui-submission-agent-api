@@ -13,7 +13,7 @@ export interface WalletContext {
    * Chain namespace the wallet is active on. Legacy clients may omit
    * this; default to `"eip155"` when absent.
    */
-  namespace?: "eip155" | "solana";
+  namespace?: "eip155" | "solana" | "sui";
   label?: string;
   chain_id: number;
   chain_name: string;
@@ -49,6 +49,7 @@ export const AGENT_SYSTEM_PROMPT = `## Agent Rules
 - Only **stablecoins** are accepted for adding points — native tokens (ETH, MATIC, BNB, SOL, etc.) are NOT eligible
 - When preparing to add points on EVM, call \`get_wallet_tokens\` with \`is_stable_coin: true\` and \`include_balance: true\` to get eligible tokens
 - When preparing to add points on Solana (namespace: solana), call \`get_wallet_spl_tokens\` with \`is_stable_coin: true\` and \`include_balance: true\` instead
+- When preparing to add points on Sui (namespace: sui), call \`get_wallet_sui_coins\` with \`is_stable_coin: true\` and \`include_balance: true\` instead
 - Only stablecoins that have a \`pegged_currency\` value configured are valid; if a stablecoin row has no \`pegged_currency\`, skip it
 - If only one eligible stablecoin exists, use it directly without asking the user to choose
 - If multiple eligible stablecoins exist, present only those options to the user
@@ -56,8 +57,10 @@ export const AGENT_SYSTEM_PROMPT = `## Agent Rules
 ### Token discovery
 - On **EVM chains** (namespace: eip155): call \`get_wallet_tokens\` to resolve symbol → contract address before transfers. NEVER hardcode or guess a token contract address.
 - On **Solana** (namespace: solana): call \`get_wallet_spl_tokens\` instead — \`get_wallet_tokens\` is EVM-only and will error on Solana. Use \`get_wallet_spl_tokens\` the same way: pass \`symbol\` to filter, \`include_balance: true\` for live balances, \`is_stable_coin: true\` for stablecoins only.
+- On **Sui** (namespace: sui): call \`get_wallet_sui_coins\` instead — \`get_wallet_tokens\` and \`get_wallet_spl_tokens\` are not valid on Sui. Use \`get_wallet_sui_coins\` the same way: pass \`symbol\` to filter, \`include_balance: true\` for live balances, \`is_stable_coin: true\` for stablecoins only. On Sui the row's \`address\` field is the Move struct path (e.g. \`0x2::sui::SUI\`); pass it as \`coin_type\` to \`send_sui_coin\` verbatim.
 - \`get_wallet_tokens\` response rows: \`token_id\`, \`symbol\`, \`name\`, \`address\`, \`decimals\`, \`is_native\`, \`is_stable_coin\`, optional \`pegged_currency\`, optional \`balance_display\`.
 - \`get_wallet_spl_tokens\` response rows: \`symbol\`, \`name\`, \`address\` (mint pubkey), \`decimals\`, \`is_native\`, \`is_stable_coin\`, optional \`pegged_currency\`, optional \`balance_display\`.
+- \`get_wallet_sui_coins\` response rows: \`symbol\`, \`name\`, \`address\` (Move struct path / coin type), \`decimals\`, \`is_native\`, \`is_stable_coin\`, optional \`pegged_currency\`, optional \`balance_display\`.
 - **EVM multi-chain** — pass \`chain_ids: [8453, 1, 137, ...]\` to fan out in parallel.
 - When asked about a specific token's balance (e.g. "how much USDC do I have?"), call the appropriate tool with \`symbol\` and \`include_balance: true\`.
 - If the returned \`tokens\` array is empty for a symbol the user asked about, tell the user the token is not in the wallet's supported list — do NOT claim the balance is 0.
@@ -66,6 +69,7 @@ export const AGENT_SYSTEM_PROMPT = `## Agent Rules
 ### Stablecoin queries
 - EVM: call \`get_wallet_tokens\` with \`is_stable_coin: true\` and \`include_balance: true\`
 - Solana: call \`get_wallet_spl_tokens\` with \`is_stable_coin: true\` and \`include_balance: true\`
+- Sui: call \`get_wallet_sui_coins\` with \`is_stable_coin: true\` and \`include_balance: true\`
 - Do NOT enumerate all tokens and filter client-side — the mobile token registry is authoritative on what counts as a stablecoin
 
 ### Privacy

@@ -121,6 +121,24 @@ export function buildHumanSummary(
       return `Send ${amount} SOL to ${to}`;
     }
 
+    // send_sui: Sui-native transfer. `amount_sui` is human-readable; the
+    // Sui address is 0x-hex (64 chars), so the generic truncator works.
+    case 'send_sui': {
+      const amount = str(input, 'amount_sui');
+      const to = truncateAddress(input.to);
+      return `Send ${amount} SUI to ${to}`;
+    }
+
+    // send_sui_coin: non-native Sui Coin<T> transfer. We don't have a
+    // human-readable symbol on the input (the agent passes coin_type, not
+    // symbol), so fall back to "tokens" — the approval card shows the
+    // resolved symbol from the kit anyway.
+    case 'send_sui_coin': {
+      const amount = str(input, 'token_amount');
+      const to = truncateAddress(input.to);
+      return `Send ${amount} tokens to ${to} on Sui`;
+    }
+
     // transfer_erc20: ERC20 transfer with token symbol. `amount` is already a
     // human-readable token amount (ERC20 decimals are handled upstream).
     case 'transfer_erc20': {
@@ -182,6 +200,12 @@ export function buildHumanSummary(
       return 'Fetch Solana address balance';
     case 'get_wallet_sol_balance':
       return 'Fetch connected wallet SOL balance';
+    case 'get_sui_balance':
+      return 'Fetch Sui address balance';
+    case 'get_wallet_sui_balance':
+      return 'Fetch connected wallet SUI balance';
+    case 'get_wallet_sui_coins':
+      return 'Fetch wallet Sui coin list';
     case 'get_redemption_categories':
       return 'Fetch redemption categories';
     case 'get_redemption_catalog':
