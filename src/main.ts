@@ -16,6 +16,21 @@ async function bootstrap() {
     fastifyAdapter,
   )
 
+  // Buffer raw multipart bodies so /chat/transcribe can forward them
+  // verbatim to stt.ai without parsing. The 25MB cap covers ~30min of
+  // typical voice-memo audio while keeping a hard ceiling well below
+  // stt.ai's own 100MB anonymous-tier limit.
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .addContentTypeParser(
+      'multipart/form-data',
+      { parseAs: 'buffer', bodyLimit: 25 * 1024 * 1024 },
+      (_req, body, done) => {
+        done(null, body)
+      },
+    )
+
   // Enable CORS for streaming
   app.enableCors({
     origin: '*',
