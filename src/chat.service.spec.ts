@@ -4,6 +4,7 @@ import type { LanguageModel, ModelMessage, ToolSet } from 'ai'
 import { ChatService, type ModelRunner, type StreamTextCall } from './chat.service'
 import { MCPClientService } from './mcp-client.service'
 import { SessionService } from './session/session.service'
+import { ConversationService } from './history/conversation.service'
 import type {
   AgentEvent,
   AgentToolResult,
@@ -35,6 +36,30 @@ class StubMCPClientService {
   }
   async onModuleInit() {}
   async onModuleDestroy() {}
+}
+
+// Stub ConversationService — `ChatService.persistTurnSoFar` is a no-op
+// when `session.conversationId` is unset (which is the case for every
+// `seedSession()` here), but the constructor still needs an injectable.
+class StubConversationService {
+  async getConversation() {
+    return null
+  }
+  async createConversation() {
+    return { id: 'stub-conv', title: 'stub' }
+  }
+  async appendMessages() {
+    return
+  }
+  async listConversations() {
+    return []
+  }
+  async deleteConversation() {
+    return
+  }
+  async updateTitle() {
+    return { id: 'stub-conv', title: 'stub' }
+  }
 }
 
 /**
@@ -125,6 +150,7 @@ describe('ChatService agent loop', () => {
           },
         },
         { provide: MCPClientService, useClass: StubMCPClientService },
+        { provide: ConversationService, useClass: StubConversationService },
       ],
     }).compile()
 

@@ -139,6 +139,16 @@ export function buildHumanSummary(
       return `Send ${amount} tokens to ${to} on Sui`;
     }
 
+    // send_spl_token: SPL token transfer on Solana. The agent passes
+    // `token_amount` (human-readable) and `mint_address` (base58 mint pubkey).
+    // The approval card resolves the symbol from the mint registry, so we
+    // fall back to "tokens" here — same shape as `send_sui_coin`.
+    case 'send_spl_token': {
+      const amount = str(input, 'token_amount');
+      const to = truncateAddress(input.to);
+      return `Send ${amount} tokens to ${to} on Solana`;
+    }
+
     // transfer_erc20: ERC20 transfer with token symbol. `amount` is already a
     // human-readable token amount (ERC20 decimals are handled upstream).
     case 'transfer_erc20': {
@@ -178,11 +188,29 @@ export function buildHumanSummary(
       return `Deposit ${amount} ${symbol} for ~${points} points`;
     }
 
+    // deposit_points_sol: Solana counterpart of `deposit_points`. The agent
+    // passes `token_mint` instead of a symbol; the approval card resolves the
+    // symbol from the mint registry.
+    case 'deposit_points_sol': {
+      const amount = str(input, 'token_amount');
+      const points = str(input, 'expected_points');
+      return `Deposit ${amount} tokens for ~${points} points on Solana`;
+    }
+
     // execute_redemption: irreversibly spend points on a catalog product.
     case 'execute_redemption': {
       const product = str(input, 'product_name');
       const pointsCost = str(input, 'points_cost');
       return `Redeem ${product} for ${pointsCost} points`;
+    }
+
+    // execute_booking_sol: TakumiPay booking purchase on Solana. The
+    // approval card shows the booking detail (price, product, etc.) — we
+    // emit a generic label here so the registry parity test passes and
+    // anything that surfaces this string still has something readable.
+    case 'execute_booking_sol': {
+      const refId = str(input, 'ref_id');
+      return `Submit booking ${refId} on Solana`;
     }
 
     // ─── points / simulate ─────────────────────────────────────────────────

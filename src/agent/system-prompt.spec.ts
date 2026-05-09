@@ -9,7 +9,7 @@ describe('AGENT_SYSTEM_PROMPT', () => {
   it('contains the Objectives section phrasing', () => {
     expect(AGENT_SYSTEM_PROMPT).toContain('### Objectives');
     expect(AGENT_SYSTEM_PROMPT).toContain(
-      'Help users manage crypto assets and TakumiPay purchases safely',
+      'Help users manage crypto assets, points, and redemptions safely',
     );
     expect(AGENT_SYSTEM_PROMPT).toContain(
       'Never execute irreversible actions without user approval',
@@ -62,12 +62,12 @@ describe('AGENT_SYSTEM_PROMPT', () => {
   it('contains the Honesty rules', () => {
     expect(AGENT_SYSTEM_PROMPT).toContain('### Honesty');
     expect(AGENT_SYSTEM_PROMPT).toContain(
-      'Never hallucinate transaction hashes, balances, or prices',
+      'Never hallucinate balances or conversion rates',
     );
     expect(AGENT_SYSTEM_PROMPT).toContain(
-      'Report tool errors to the user verbatim',
+      'Report errors to the user in plain language',
     );
-    expect(AGENT_SYSTEM_PROMPT).toContain('If a tool is unavailable');
+    expect(AGENT_SYSTEM_PROMPT).toContain('If a service is unavailable');
   });
 });
 
