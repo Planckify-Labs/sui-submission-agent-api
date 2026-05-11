@@ -3,8 +3,8 @@
 # ============================================
 FROM node:22-alpine AS deps
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Install pnpm — pin major to match lockfileVersion '9.0' (pnpm 10.x)
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
 
@@ -19,8 +19,8 @@ RUN pnpm install --frozen-lockfile
 # ============================================
 FROM node:22-alpine AS builder
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Install pnpm — pin major to match lockfileVersion '9.0' (pnpm 10.x)
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
 
