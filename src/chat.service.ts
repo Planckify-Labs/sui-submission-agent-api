@@ -227,8 +227,32 @@ export class ChatService {
     const kimi = createOpenAI({
       apiKey,
       baseURL: 'https://api.moonshot.ai/v1',
+      // Kimi K2.6 enables deep thinking by default and, when thinking is on,
+      // every assistant tool-call must carry its `reasoning_content` into
+      // the next turn or Moonshot rejects the request. Our agent loop
+      // reconstructs assistant messages from text + tool-call parts only
+      // (chat.service.ts agentLoop), so we explicitly disable thinking to
+      // preserve the non-thinking behavior of the retired k2-0711-preview
+      // baseline. @ai-sdk/openai v3 has no native passthrough for the
+      // `thinking` field, so we inject it into the outgoing JSON body via
+      // the provider's fetch hook.
+      fetch: (input, init) => {
+        if (init?.body && typeof init.body === 'string') {
+          try {
+            const body = JSON.parse(init.body) as Record<string, unknown>
+            body.thinking = { type: 'disabled' }
+            return fetch(input as RequestInfo, {
+              ...init,
+              body: JSON.stringify(body),
+            })
+          } catch {
+            // Non-JSON body — leave the request untouched.
+          }
+        }
+        return fetch(input as RequestInfo, init)
+      },
     })
-    this.cachedModel = kimi.chat('kimi-k2-0711-preview')
+    this.cachedModel = kimi.chat('kimi-k2.6')
     return this.cachedModel
   }
 
