@@ -13,7 +13,10 @@
  * session module.
  */
 
-import type { ToolPendingPayload } from './session/types'
+import type {
+  NarrativeHandoffPayload,
+  ToolPendingPayload,
+} from './session/types'
 
 /**
  * Structured result returned by the agent loop after a mobile tool round-trip.
@@ -118,6 +121,8 @@ export type AgentEvent =
   | { event: 'text_delta'; data: TextDeltaData }
   | { event: 'tool_pending'; data: ToolPendingPayload }
   | { event: 'tool_executed'; data: ServerToolExecutedData }
+  | { event: 'narrative_handoff'; data: NarrativeHandoffPayload }
+  | { event: 'narrative_handoff_end'; data: NarrativeHandoffPayload }
   | { event: 'done'; data: DoneData }
   | { event: 'error'; data: ErrorData }
 

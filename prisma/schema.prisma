@@ -8,13 +8,14 @@ datasource db {
 }
 
 model Conversation {
-  id            String    @id @default(uuid())
-  walletAddress String    @map("wallet_address")
-  chainId       Int       @map("chain_id")
-  title         String    @default("New conversation")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id            String       @id @default(uuid())
+  walletAddress String       @map("wallet_address")
+  chainId       Int          @map("chain_id")
+  title         String       @default("New conversation")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
   messages      Message[]
+  agentTasks    AgentTask[]
 
   @@index([walletAddress, updatedAt(sort: Desc)])
   @@map("conversations")
@@ -30,4 +31,43 @@ model Message {
 
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+// Multi-agent task lifecycle.
+// Spec: docs/multi-agent-architecture-spec.md §8.2.
+// Field names are camelCase Prisma-side, snake_case in SQL (@map). The
+// in-memory `AgentTask` type (src/agents/types.ts) is snake_case to
+// match the protocol; the store wrapper (src/agents/tasks/store.ts)
+// converts.
+model AgentTask {
+  id             String              @id @default(cuid())
+  conversationId String              @map("conversation_id")
+  conversation   Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  ownerAgent     String              @map("owner_agent") // AgentId
+  parentTaskId   String?             @map("parent_task_id") // for nested delegations
+  brief          String              // PII-free short summary
+  inputJson      Json                @map("input_json")
+  status         String              // pending | working | completed | failed
+  outputJson     Json?               @map("output_json")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  peerMessages   AgentPeerMessage[]
+
+  @@index([conversationId])
+  @@map("agent_tasks")
+}
+
+model AgentPeerMessage {
+  id          String    @id @default(cuid())
+  taskId      String    @map("task_id")
+  task        AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fromAgent   String    @map("from_agent")
+  toAgent     String    @map("to_agent")
+  kind        String    // "ask_user" | "info" | "result"
+  body        String    // PII-free short text
+  attachments Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([taskId])
+  @@map("agent_peer_messages")
 }

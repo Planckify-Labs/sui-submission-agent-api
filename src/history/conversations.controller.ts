@@ -46,6 +46,24 @@ export interface ConversationListResponse {
   next_cursor: string | null
 }
 
+export interface AgentTaskTranscriptPeerMessage {
+  from: string
+  to: string
+  kind: string
+  body: string
+  created_at: string
+}
+
+export interface AgentTaskTranscript {
+  id: string
+  owner_agent: string
+  brief: string
+  status: string
+  created_at: string
+  updated_at: string
+  peer_messages: AgentTaskTranscriptPeerMessage[]
+}
+
 export interface ConversationDetailResponse {
   id: string
   title: string
@@ -54,6 +72,17 @@ export interface ConversationDetailResponse {
   created_at: string
   updated_at: string
   messages: unknown[]
+  /**
+   * Multi-agent task transcript. Only present when
+   * `EXPOSE_AGENT_TASK_TRANSCRIPTS=true` (debug). In production the
+   * field is omitted entirely — not `null`, not `[]` — to keep the
+   * feature invisible to clients per the spec (§8 + Task 15).
+   */
+  agent_tasks?: AgentTaskTranscript[]
+}
+
+function isDebugTranscriptEnabled(): boolean {
+  return process.env.EXPOSE_AGENT_TASK_TRANSCRIPTS === 'true'
 }
 
 @Controller('conversations')
@@ -98,7 +127,7 @@ export class ConversationsController {
       throw new NotFoundException({ code: 'conversation_not_found' })
     }
 
-    return {
+    const base: ConversationDetailResponse = {
       id: conv.id,
       title: conv.title,
       wallet_address: conv.walletAddress,
@@ -111,6 +140,27 @@ export class ConversationsController {
         created_at: m.createdAt.toISOString(),
       })),
     }
+
+    if (isDebugTranscriptEnabled()) {
+      const tasks = await this.conversationService.listAgentTasks(conv.id)
+      base.agent_tasks = tasks.map((t) => ({
+        id: t.id,
+        owner_agent: t.ownerAgent,
+        brief: t.brief,
+        status: t.status,
+        created_at: t.createdAt.toISOString(),
+        updated_at: t.updatedAt.toISOString(),
+        peer_messages: t.peerMessages.map((m) => ({
+          from: m.fromAgent,
+          to: m.toAgent,
+          kind: m.kind,
+          body: m.body,
+          created_at: m.createdAt.toISOString(),
+        })),
+      }))
+    }
+
+    return base
   }
 
   @Delete(':id')

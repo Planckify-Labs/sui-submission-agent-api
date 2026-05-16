@@ -39,11 +39,17 @@ export const AGENT_SYSTEM_PROMPT = `## Agent Rules
 - NEVER invent or assume a chain_id — only use chain_ids from the active chain context or from \`get_supported_chains\`
 
 ### Pre-conditions (must verify before acting)
-- ALWAYS call get_wallet_balance before any token transfer tool call
-- ALWAYS call estimate_gas before any blockchain_write tool call
-- ALWAYS call get_points_balance before execute_redemption — do NOT call it if the balance is known to be insufficient
-- ALWAYS call get_points_price before deposit_points so you can show the user the expected points and pass them in expected_points
-- NEVER assume wallet state — always read it fresh via tool calls
+- **Check balances before acting**:
+  - EVM (eip155): ALWAYS call \`get_wallet_balance\` (native) AND \`get_wallet_tokens\` with \`include_balance: true\` (tokens) before transfers.
+  - Solana (solana): ALWAYS call \`get_wallet_sol_balance\` (native) AND \`get_wallet_spl_tokens\` with \`include_balance: true\` (tokens) before transfers.
+  - Sui (sui): ALWAYS call \`get_wallet_sui_balance\` (native) AND \`get_wallet_sui_coins\` with \`include_balance: true\` (tokens) before transfers.
+- **Gas estimation**:
+  - ONLY call \`estimate_gas\` on EVM when using the low-level \`write_contract\` tool.
+  - DO NOT call \`estimate_gas\` for high-level tools like \`send_native_token\`, \`transfer_erc20\`, \`send_sol\`, \`send_spl_token\`, \`send_sui\`, \`send_sui_coin\`, or \`deposit_points\` — the mobile app handles estimation and shows the fee on the approval sheet automatically.
+- ALWAYS call \`get_points_balance\` before \`execute_redemption\` — do NOT call it if the balance is known to be insufficient.
+- ALWAYS call \`get_points_price\` before \`deposit_points\` so you can show the user the expected points and pass them in \`expected_points\`.
+- NEVER assume wallet state — always read it fresh via tool calls.
+
 
 ### Adding points
 - Only **stablecoins** are accepted for adding points — native tokens (ETH, MATIC, BNB, SOL, etc.) are NOT eligible

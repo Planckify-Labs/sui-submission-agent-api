@@ -307,8 +307,17 @@ export class ChatService {
       try {
         call = this.modelRunner({
           model: this.getModel(),
+          // Two defensive passes (both pure):
+          //   1. `sanitizeOrphanedToolCalls` — inject `interrupted`
+          //      results for assistant `tool_calls` that lack a reply.
+          //   2. `dropOrphanedToolResults` — strip `tool` messages
+          //      whose ids have no preceding `tool_calls`. Without
+          //      this, an out-of-order persistence reload trips the
+          //      provider's 400.
           messages: this.stripDisplayForLLM(
-            sanitizeOrphanedToolCalls(session.messages),
+            dropOrphanedToolResults(
+              sanitizeOrphanedToolCalls(session.messages),
+            ),
           ),
           tools: allTools,
           system: systemPrompt,
@@ -1124,6 +1133,99 @@ function sanitizeOrphanedToolCalls(messages: ModelMessage[]): ModelMessage[] {
         }),
       )
     }
+  }
+  return out
+}
+
+/**
+ * Defensive (inverse of `sanitizeOrphanedToolCalls`): drop any
+ * `role: "tool"` message whose `toolCallId`s have no matching
+ * preceding `assistant` `tool-call`. Moonshot/Kimi (and every other
+ * OpenAI-compatible provider) returns a 400 with
+ * `"messages with role 'tool' must be a response to a preceeding
+ * message with 'tool_calls'"` otherwise.
+ *
+ * Cause this guards against: persistence ordering bugs (multiple rows
+ * sharing a `createdAt` and coming back out of order), or a stray
+ * tool message left over from a malformed earlier turn.
+ *
+ * Pure; returns a new array. Sessions without orphans pay one linear
+ * scan.
+ */
+function dropOrphanedToolResults(messages: ModelMessage[]): ModelMessage[] {
+  const openCallIds = new Set<string>()
+  let needsRewrite = false
+  for (const msg of messages) {
+    if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+      for (const part of msg.content as unknown[]) {
+        if (
+          part &&
+          typeof part === 'object' &&
+          (part as { type?: unknown }).type === 'tool-call'
+        ) {
+          const id = (part as { toolCallId?: unknown }).toolCallId
+          if (typeof id === 'string') openCallIds.add(id)
+        }
+      }
+      continue
+    }
+    if (msg.role === 'tool' && Array.isArray(msg.content)) {
+      for (const part of msg.content as unknown[]) {
+        if (
+          part &&
+          typeof part === 'object' &&
+          (part as { type?: unknown }).type === 'tool-result'
+        ) {
+          const id = (part as { toolCallId?: unknown }).toolCallId
+          if (typeof id !== 'string' || !openCallIds.has(id)) {
+            needsRewrite = true
+          } else {
+            openCallIds.delete(id)
+          }
+        }
+      }
+    }
+  }
+  if (!needsRewrite) return messages
+
+  const out: ModelMessage[] = []
+  const open2 = new Set<string>()
+  for (const msg of messages) {
+    if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+      for (const part of msg.content as unknown[]) {
+        if (
+          part &&
+          typeof part === 'object' &&
+          (part as { type?: unknown }).type === 'tool-call'
+        ) {
+          const id = (part as { toolCallId?: unknown }).toolCallId
+          if (typeof id === 'string') open2.add(id)
+        }
+      }
+      out.push(msg)
+      continue
+    }
+    if (msg.role === 'tool' && Array.isArray(msg.content)) {
+      const kept = (msg.content as unknown[]).filter((part) => {
+        if (
+          !part ||
+          typeof part !== 'object' ||
+          (part as { type?: unknown }).type !== 'tool-result'
+        ) {
+          return true
+        }
+        const id = (part as { toolCallId?: unknown }).toolCallId
+        if (typeof id !== 'string') return false
+        if (!open2.has(id)) return false
+        open2.delete(id)
+        return true
+      })
+      if (kept.length > 0) {
+        out.push({ ...msg, content: kept } as ModelMessage)
+      }
+      continue
+    }
+    out.push(msg)
   }
   return out
 }

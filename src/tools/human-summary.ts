@@ -93,89 +93,69 @@ export function buildHumanSummary(
 ): string {
   switch (name) {
     // ─── simulate ──────────────────────────────────────────────────────────
-    // estimate_gas: the tool pre-computes `eth_amount` (human-readable ETH)
-    // and `usd_amount` (human-readable USD) since the raw gas_wei is not
-    // useful to a human reading an approval sheet.
+    // estimate_gas: the agent passes chain_id, to, and value_wei. The
+    // human-readable gas estimate is not known until the tool executes,
+    // so we show a generic "Estimating gas" label.
     case 'estimate_gas': {
-      const eth = str(input, 'eth_amount');
-      const usd = str(input, 'usd_amount');
-      return `Gas estimate: ~${eth} ETH ($${usd})`;
+      const to = truncateAddress(input.to);
+      return `Estimate gas for transfer to ${to}`;
     }
 
     // ─── write ─────────────────────────────────────────────────────────────
-    // send_native_token: `amount` is a human-readable ETH string (e.g. "0.5"),
-    // `to` is the destination address, `chain_name` is the human chain name.
+    // send_native_token: `value_wei` is the base-10 amount, `to` is the
+    // destination. The agent passes chain_id (integer), not chain_name.
     case 'send_native_token': {
-      const amount = formatEthAmount(input.amount);
+      const amount = formatEthAmount(input.value_wei);
       const to = truncateAddress(input.to);
-      const chain = str(input, 'chain_name', str(input, 'chain'));
-      return `Send ${amount} ETH to ${to} on ${chain}`;
+      return `Send ${amount} ETH to ${to}`;
     }
 
-    // send_sol: Solana-native transfer. `amount_sol` is a human-readable
-    // decimal string; the Solana address is base58 so we fall back to the
-    // generic address truncator (it works on any string long enough).
     case 'send_sol': {
       const amount = str(input, 'amount_sol');
       const to = truncateAddress(input.to);
       return `Send ${amount} SOL to ${to}`;
     }
-
-    // send_sui: Sui-native transfer. `amount_sui` is human-readable; the
-    // Sui address is 0x-hex (64 chars), so the generic truncator works.
     case 'send_sui': {
       const amount = str(input, 'amount_sui');
       const to = truncateAddress(input.to);
       return `Send ${amount} SUI to ${to}`;
     }
-
-    // send_sui_coin: non-native Sui Coin<T> transfer. We don't have a
-    // human-readable symbol on the input (the agent passes coin_type, not
-    // symbol), so fall back to "tokens" — the approval card shows the
-    // resolved symbol from the kit anyway.
     case 'send_sui_coin': {
       const amount = str(input, 'token_amount');
       const to = truncateAddress(input.to);
-      return `Send ${amount} tokens to ${to} on Sui`;
+      return `Send ${amount} tokens to ${to}`;
     }
-
-    // send_spl_token: SPL token transfer on Solana. The agent passes
-    // `token_amount` (human-readable) and `mint_address` (base58 mint pubkey).
-    // The approval card resolves the symbol from the mint registry, so we
-    // fall back to "tokens" here — same shape as `send_sui_coin`.
     case 'send_spl_token': {
       const amount = str(input, 'token_amount');
       const to = truncateAddress(input.to);
-      return `Send ${amount} tokens to ${to} on Solana`;
+      return `Send ${amount} tokens to ${to}`;
     }
 
-    // transfer_erc20: ERC20 transfer with token symbol. `amount` is already a
-    // human-readable token amount (ERC20 decimals are handled upstream).
+    // transfer_erc20: `token_amount` is human-readable, `contract_address` is
+    // the token. symbol and chain_name are not in the schema (the mobile
+    // resolves them from the registry).
     case 'transfer_erc20': {
-      const amount = str(input, 'amount');
-      const symbol = str(input, 'symbol');
+      const amount = str(input, 'token_amount');
       const to = truncateAddress(input.to);
-      const chain = str(input, 'chain_name', str(input, 'chain'));
-      return `Send ${amount} ${symbol} to ${to} on ${chain}`;
+      return `Send ${amount} tokens to ${to}`;
     }
 
-    // write_contract: uses the short-form address truncation (trailing `…`
-    // only) to match the protocol-spec example `Call \`transfer()\` on
-    // 0xAbCd…`.
+    // write_contract: `contract_address` is the field name in the schema,
+    // not `address`.
     case 'write_contract': {
       const fn = str(input, 'function_name');
-      const addr = truncateAddressShort(input.address);
+      const addr = truncateAddressShort(input.contract_address);
       return `Call \`${fn}()\` on ${addr}`;
     }
 
-    // approve_erc20: `spender` is the contract being granted allowance,
-    // `amount` is the human-readable cap, `symbol` is the token ticker.
+    // approve_erc20: `token_amount` is the field name, not `amount`.
+    // symbol is not in the schema.
     case 'approve_erc20': {
       const spender = truncateAddress(input.spender);
-      const amount = str(input, 'amount');
-      const symbol = str(input, 'symbol');
-      return `Approve ${spender} to spend up to ${amount} ${symbol}`;
+      const amount = str(input, 'token_amount');
+      return `Approve ${spender} to spend up to ${amount} tokens`;
     }
+
 
     // ─── points / write ────────────────────────────────────────────────────
     // deposit_points: on-chain token transfer + API deposit registration.
@@ -211,6 +191,30 @@ export function buildHumanSummary(
     case 'execute_booking_sol': {
       const refId = str(input, 'ref_id');
       return `Submit booking ${refId} on Solana`;
+    }
+
+    // ─── defi / write (stubbed in v1) ───────────────────────────────────
+    // The handlers return `{ status: "stubbed", … }` so these summaries
+    // are only used by the parity test today, but the labels must stay
+    // approval-safe — when the real DeFi backend lands the same string
+    // surfaces on the unified PendingTxCard (defi-strategies-spec.md §11).
+    case 'defi_deposit': {
+      const amount = str(input, 'amount_raw');
+      const asset = str(input, 'asset_symbol');
+      const slug = str(input, 'protocol_slug');
+      return `Deposit ${amount} ${asset} into ${slug}`;
+    }
+    case 'defi_withdraw': {
+      const amount = str(input, 'amount_raw');
+      const position = str(input, 'position_id');
+      return `Withdraw ${amount} from position ${position}`;
+    }
+    case 'defi_rebalance': {
+      const position = str(input, 'position_id');
+      const target = str(input, 'target_protocol_slug', '');
+      return target
+        ? `Rebalance position ${position} → ${target}`
+        : `Rebalance position ${position}`;
     }
 
     // ─── points / simulate ─────────────────────────────────────────────────

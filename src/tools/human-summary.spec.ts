@@ -2,53 +2,48 @@ import { buildHumanSummary, truncateAddress } from './human-summary';
 import { TOOL_REGISTRY } from './registry';
 
 describe('buildHumanSummary', () => {
-  it('estimate_gas → pre-formatted ETH + USD string', () => {
+  it('estimate_gas → generic "Estimate gas" label with truncated recipient', () => {
     expect(
       buildHumanSummary('estimate_gas', {
-        eth_amount: '0.002',
-        usd_amount: '3.20',
+        to: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bdef',
       }),
-    ).toBe('Gas estimate: ~0.002 ETH ($3.20)');
+    ).toBe('Estimate gas for transfer to 0x742d…ef');
   });
 
-  it('send_native_token → human amount + truncated address + chain', () => {
+  it('send_native_token → human amount from wei + truncated address', () => {
     expect(
       buildHumanSummary('send_native_token', {
-        amount: '0.5',
+        value_wei: 500000000000000000n, // 0.5 ETH
         to: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bdef',
-        chain_name: 'Polygon',
       }),
-    ).toBe('Send 0.5 ETH to 0x742d…ef on Polygon');
+    ).toBe('Send 0.5 ETH to 0x742d…ef');
   });
 
-  it('transfer_erc20 → amount + symbol + truncated address + chain', () => {
+  it('transfer_erc20 → amount + generic "tokens" label + truncated address', () => {
     expect(
       buildHumanSummary('transfer_erc20', {
-        amount: '3',
-        symbol: 'USDT',
+        token_amount: '3',
         to: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bdef',
-        chain_name: 'Polygon',
       }),
-    ).toBe('Send 3 USDT to 0x742d…ef on Polygon');
+    ).toBe('Send 3 tokens to 0x742d…ef');
   });
 
-  it('write_contract → backticked function name + short-truncated address', () => {
+  it('write_contract → backticked function name + short-truncated contract_address', () => {
     expect(
       buildHumanSummary('write_contract', {
         function_name: 'transfer',
-        address: '0xAbCdEf1234567890abcdef1234567890abcdef12',
+        contract_address: '0xAbCdEf1234567890abcdef1234567890abcdef12',
       }),
     ).toBe('Call `transfer()` on 0xAbCd…');
   });
 
-  it('approve_erc20 → truncated spender + human allowance + symbol', () => {
+  it('approve_erc20 → truncated spender + human allowance', () => {
     expect(
       buildHumanSummary('approve_erc20', {
         spender: '0xDeFi2F1a3b4c5d6e7f8901234567890abcdef12ef',
-        amount: '100',
-        symbol: 'USDC',
+        token_amount: '100',
       }),
-    ).toBe('Approve 0xDeFi…ef to spend up to 100 USDC');
+    ).toBe('Approve 0xDeFi…ef to spend up to 100 tokens');
   });
 
   it('deposit_points → token amount + symbol + expected points', () => {
@@ -86,22 +81,20 @@ describe('buildHumanSummary', () => {
       buildHumanSummary('estimate_gas', {}),
     ).not.toThrow();
     expect(buildHumanSummary('estimate_gas', {})).toBe(
-      'Gas estimate: ~? ETH ($?)',
+      'Estimate gas for transfer to ?',
     );
 
     // Missing `to` address on send_native_token falls back to "?".
     expect(() =>
       buildHumanSummary('send_native_token', {
-        amount: '0.5',
-        chain_name: 'Polygon',
+        value_wei: '500000000000000000',
       }),
     ).not.toThrow();
     expect(
       buildHumanSummary('send_native_token', {
-        amount: '0.5',
-        chain_name: 'Polygon',
+        value_wei: '500000000000000000',
       }),
-    ).toBe('Send 0.5 ETH to ? on Polygon');
+    ).toBe('Send 0.5 ETH to ?');
   });
 
   it('covers every simulate/write tool in TOOL_REGISTRY with a non-default case', () => {

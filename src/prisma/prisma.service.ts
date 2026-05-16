@@ -32,6 +32,12 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get message() {
     return this.rawClient.message
   }
+  get agentTask() {
+    return this.rawClient.agentTask
+  }
+  get agentPeerMessage() {
+    return this.rawClient.agentPeerMessage
+  }
   get $transaction() {
     return this.rawClient.$transaction.bind(this.rawClient)
   }

@@ -85,6 +85,28 @@ export interface ToolPendingPayload {
    * "⚠︎ Interrupted" deterministically rather than via a time-based guess.
    */
   interrupted_at?: string
+  /**
+   * Optional id of the agent that emitted this tool call.
+   *
+   * Spec: docs/multi-agent-architecture-spec.md §6, §11.4.
+   *
+   * Mobile renders a small "via X specialist" badge when present and
+   * not equal to `core` / `wallet` (Task 17). Old mobile clients that
+   * ignore the field keep working unchanged — backwards-compatibility
+   * verified by the Task 20 e2e test.
+   */
+  origin_agent_id?: string
+}
+
+/**
+ * Narrative pass-through markers (spec §6.4). Emitted by the
+ * orchestrator before/after a specialist streams prose directly to
+ * the user via `core_handoff({ conversational: true })`.
+ *
+ * Content-only — no timestamps / request ids / conversation id.
+ */
+export interface NarrativeHandoffPayload {
+  origin_agent_id: string
 }
 
 /**

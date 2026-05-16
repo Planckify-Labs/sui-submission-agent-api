@@ -4,8 +4,17 @@ import {
   NestFastifyApplication,
 } from '@nestjs/platform-fastify'
 import { AppModule } from './app.module'
+import { loadAgentCards } from './agents/loadAgentCards'
+import { assertRegistryInvariants } from './agents/registry'
+import { TOOL_REGISTRY } from './tools/registry'
 
 async function bootstrap() {
+  // Multi-agent registry boot — fail loud if cards / manifest / tool
+  // registry are out of sync (spec §5, §4.1). Must run before we accept
+  // traffic. CLAUDE.md user-facing-error rule: the throw lands here in
+  // process logs; users never see the raw violation string.
+  loadAgentCards()
+  assertRegistryInvariants(Object.keys(TOOL_REGISTRY))
   const fastifyAdapter = new FastifyAdapter({
     // Enable streaming support
     bodyLimit: 1024 * 1024, // 1MB
