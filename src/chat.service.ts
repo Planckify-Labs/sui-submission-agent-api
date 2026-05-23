@@ -236,20 +236,44 @@ export class ChatService {
       // baseline. @ai-sdk/openai v3 has no native passthrough for the
       // `thinking` field, so we inject it into the outgoing JSON body via
       // the provider's fetch hook.
-      fetch: (input, init) => {
+      fetch: async (input, init) => {
+        const bodyType = typeof init?.body
+        const bodyLen =
+          typeof init?.body === 'string' ? init.body.length : -1
+        let hookApplied = false
+        let outBody = init?.body
         if (init?.body && typeof init.body === 'string') {
           try {
             const body = JSON.parse(init.body) as Record<string, unknown>
             body.thinking = { type: 'disabled' }
-            return fetch(input as RequestInfo, {
-              ...init,
-              body: JSON.stringify(body),
-            })
+            outBody = JSON.stringify(body)
+            hookApplied = true
           } catch {
             // Non-JSON body — leave the request untouched.
           }
         }
-        return fetch(input as RequestInfo, init)
+        const hasMessages =
+          typeof outBody === 'string' &&
+          /"role":"(tool|assistant)"/.test(outBody)
+        const startedAt = Date.now()
+        this.logger.log(
+          `[moonshot.fetch] enter bodyType=${bodyType} inLen=${bodyLen} outLen=${typeof outBody === 'string' ? outBody.length : -1} hookApplied=${hookApplied} hasToolTurn=${hasMessages}`,
+        )
+        try {
+          const res = await fetch(input as RequestInfo, {
+            ...init,
+            body: outBody,
+          })
+          this.logger.log(
+            `[moonshot.fetch] response status=${res.status} dur=${Date.now() - startedAt}ms`,
+          )
+          return res
+        } catch (err) {
+          this.logger.error(
+            `[moonshot.fetch] FAILED dur=${Date.now() - startedAt}ms: ${(err as Error).name}: ${(err as Error).message}`,
+          )
+          throw err
+        }
       },
     })
     this.cachedModel = kimi.chat('kimi-k2.6')

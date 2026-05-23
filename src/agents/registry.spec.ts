@@ -46,7 +46,7 @@ describe('agents/registry', () => {
     it('looks up cards by id', () => {
       expect(getAgentCard('core')?.id).toBe('core')
       expect(getAgentCard('wallet')?.display_name).toBe('Wallet specialist')
-      expect(getAgentCard('defi')?.status).toBe('stub')
+      expect(getAgentCard('defi')?.status).toBe('ready')
     })
 
     it('routes core_ family to Core', () => {

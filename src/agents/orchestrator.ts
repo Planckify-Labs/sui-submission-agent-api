@@ -260,24 +260,40 @@ async function runOneToolCall(args: {
     }
 
     if (card.id === 'defi') {
-      // v1 DeFi: send a tool_pending to the mobile stub executor so
-      // the mobile->server round-trip is exercised end-to-end (the
-      // mobile stub returns canned `{ status: "stubbed", … }`), then
-      // close the task with the result. Core's prompt paraphrases the
-      // sentinel into "DeFi Strategies are coming soon" copy.
+      const dispatchResult = handleDefiTask({
+        task,
+        wallet_context,
+        dispatch: {
+          tool_name: call.toolName,
+          input: (call.input ?? {}) as Record<string, unknown>,
+          tool_call_id: call.toolCallId,
+        },
+      })
+      if (dispatchResult.kind === 'refused') {
+        await store.transitionTask(task.id, 'failed', {
+          reason: dispatchResult.reason,
+        })
+        sse_sink.emit({
+          kind: 'assistant_message',
+          origin_agent_id: 'core',
+          text: "I couldn't complete that — please try again.",
+        })
+        return
+      }
+      const envelope = dispatchResult.envelope
       sse_sink.emit({
         kind: 'tool_pending',
         origin_agent_id: 'defi',
-        tool_call_id: call.toolCallId,
-        name: call.toolName,
-        input: (call.input ?? {}) as Record<string, unknown>,
-        wallet_context,
+        tool_call_id: envelope.tool_call_id,
+        name: envelope.name,
+        input: envelope.input,
+        wallet_context: envelope.wallet_context,
       })
-      const output = await sse_sink.awaitMobileResult(call.toolCallId)
+      const output = await sse_sink.awaitMobileResult(envelope.tool_call_id)
       sse_sink.emit({
         kind: 'tool_result',
         origin_agent_id: 'defi',
-        tool_call_id: call.toolCallId,
+        tool_call_id: envelope.tool_call_id,
         output,
       })
       await store.transitionTask(task.id, 'completed', output)

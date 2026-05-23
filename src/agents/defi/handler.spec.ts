@@ -1,59 +1,44 @@
-import type { AgentTask } from '../types'
+import { coreCard } from '../core/card'
+import { defiCard } from './card'
+import { __resetRegistryForTests, registerAgent } from '../registry'
+import { walletCard } from '../wallet/card'
 import { handleDefiTask } from './handler'
 
-const task: AgentTask = {
-  id: 'task-1',
-  conversation_id: 'conv-1',
-  owner_agent: 'defi',
-  brief: 'fixture',
-  input: {},
-  status: 'pending',
-  created_at: new Date(),
-  updated_at: new Date(),
-}
-
 describe('agents/defi/handler', () => {
-  it('defi_list_opportunities → three canned rows', () => {
-    const { output } = handleDefiTask({
-      task,
-      dispatch: { tool_name: 'defi_list_opportunities' },
-    })
-    const o = output as { opportunities: Array<{ risk_tier: string }> }
-    expect(o.opportunities).toHaveLength(3)
-    expect(o.opportunities.map((r) => r.risk_tier).sort()).toEqual([
-      'aggressive',
-      'balanced',
-      'conservative',
-    ])
+  beforeEach(() => {
+    __resetRegistryForTests()
+    registerAgent(coreCard)
+    registerAgent(walletCard)
+    registerAgent(defiCard)
   })
 
-  it('defi_list_positions → empty array', () => {
-    const { output } = handleDefiTask({
-      task,
-      dispatch: { tool_name: 'defi_list_positions' },
+  it('returns tool_pending envelope for valid defi tool', () => {
+    const output = handleDefiTask({
+      task: {} as any,
+      wallet_context: { address: '0x123' } as any,
+      dispatch: { tool_name: 'defi_deposit', input: {}, tool_call_id: '123' },
     })
-    expect(output).toEqual({ positions: [] })
+    expect(output).toEqual({
+      kind: 'tool_pending',
+      envelope: {
+        origin_agent_id: 'defi',
+        tool_call_id: '123',
+        name: 'defi_deposit',
+        input: {},
+        wallet_context: { address: '0x123' },
+      },
+    })
   })
 
-  it.each(['defi_deposit', 'defi_withdraw', 'defi_rebalance'])(
-    '%s → { status: "stubbed", message: ... }',
-    (name) => {
-      const { output } = handleDefiTask({
-        task,
-        dispatch: { tool_name: name },
-      })
-      expect(output).toMatchObject({
-        status: 'stubbed',
-        message: expect.stringContaining('DeFi'),
-      })
-    },
-  )
-
-  it('unknown defi_* tool falls back to stubbed sentinel', () => {
-    const { output } = handleDefiTask({
-      task,
-      dispatch: { tool_name: 'defi_get_config' },
+  it('refuses unknown tools', () => {
+    const output = handleDefiTask({
+      task: {} as any,
+      wallet_context: { address: '0x123' } as any,
+      dispatch: { tool_name: 'unknown_tool', input: {}, tool_call_id: '123' },
     })
-    expect(output).toMatchObject({ status: 'stubbed' })
+    expect(output).toEqual({
+      kind: 'refused',
+      reason: 'out_of_prefix',
+    })
   })
 })

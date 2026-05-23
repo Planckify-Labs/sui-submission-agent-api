@@ -24,7 +24,7 @@ const DEFI_DEPOSIT: ToolMeta = {
   executor: 'mobile',
   capability: 'write',
   description:
-    'Deposit into a single DeFi opportunity. v1: stubbed — returns { status: "stubbed", message: ... } that Core paraphrases as "DeFi Strategies are coming soon".',
+    'Deposit into a single DeFi opportunity.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -72,7 +72,7 @@ const DEFI_WITHDRAW: ToolMeta = {
   executor: 'mobile',
   capability: 'write',
   description:
-    'Withdraw partially or fully from a DeFi position. v1: stubbed.',
+    'Withdraw partially or fully from a DeFi position.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -99,7 +99,7 @@ const DEFI_REBALANCE: ToolMeta = {
   executor: 'mobile',
   capability: 'write',
   description:
-    'Move a position from one protocol to another (two-step: withdraw + deposit). v1: stubbed.',
+    'Move a position from one protocol to another (two-step: withdraw + deposit).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -118,11 +118,97 @@ const DEFI_REBALANCE: ToolMeta = {
   },
 }
 
+const DEFI_CROSS_CHAIN_DEPOSIT: ToolMeta = {
+  name: 'defi_cross_chain_deposit',
+  category: 'utility',
+  executor: 'mobile',
+  capability: 'write',
+  description:
+    'Bridge tokens cross-chain via LI.FI as the first leg of a deposit into a DeFi opportunity on the destination chain. The destination-chain deposit is a follow-up `defi_deposit` call once bridging completes.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      protocol_slug: {
+        type: 'string',
+        description:
+          'Target adapter selector on the destination chain, e.g. "aave-v3-base".',
+      },
+      from_chain_id: {
+        type: 'integer',
+        description: 'Source EVM chain id (where the user holds the funds).',
+        minimum: 1,
+      },
+      to_chain_id: {
+        type: 'integer',
+        description:
+          'Destination EVM chain id. Must match the adapter\'s chain.',
+        minimum: 1,
+      },
+      from_asset_symbol: {
+        type: 'string',
+        description: 'Source asset symbol, e.g. "USDC".',
+      },
+      from_asset_contract: ADDRESS_PROP(
+        'Optional explicit source ERC20 contract (lowercased). When omitted the executor resolves it from the mobile token registry.',
+      ),
+      to_asset_contract: ADDRESS_PROP(
+        'Optional explicit destination ERC20 contract (lowercased). Defaults to the destination opportunity\'s underlying asset.',
+      ),
+      amount_raw: {
+        type: 'string',
+        pattern: '^[0-9]+$',
+        description:
+          "Decimal-string amount in the source token's smallest unit (bigint-safe).",
+      },
+      expected_apy: {
+        type: 'number',
+        description:
+          'Optional APY hint for the destination opportunity; validated against OpportunityCache (±5%).',
+      },
+      expected_tier: {
+        type: 'string',
+        enum: ['conservative', 'balanced', 'aggressive'],
+        description: 'Optional risk-tier hint for the destination opportunity.',
+      },
+    },
+    required: [
+      'protocol_slug',
+      'from_chain_id',
+      'to_chain_id',
+      'from_asset_symbol',
+      'amount_raw',
+    ],
+    additionalProperties: false,
+  },
+}
+
+const DEFI_COMPOUND: ToolMeta = {
+  name: 'defi_compound',
+  category: 'utility',
+  executor: 'mobile',
+  capability: 'write',
+  description:
+    'Claim accrued rewards on a position and immediately redeposit them into the same protocol (one signed cycle). Spec §21.3 — auto-compound opt-in.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      position_id: {
+        type: 'string',
+        description: 'Position id to compound (from `defi_list_positions`).',
+      },
+    },
+    required: ['position_id'],
+    additionalProperties: false,
+  },
+}
+
 export const DEFI_PROPOSE_TOOLS: Record<string, ToolMeta> = composeAgentTools(
   'defi',
   {
     defi_deposit: DEFI_DEPOSIT,
     defi_withdraw: DEFI_WITHDRAW,
     defi_rebalance: DEFI_REBALANCE,
+    defi_cross_chain_deposit: DEFI_CROSS_CHAIN_DEPOSIT,
+    defi_compound: DEFI_COMPOUND,
   },
 )

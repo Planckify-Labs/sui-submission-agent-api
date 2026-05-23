@@ -1,90 +1,83 @@
 /**
- * DeFi handler — STUB v1.
+ * DeFi handler — real dispatcher.
  *
- * Spec: docs/multi-agent-architecture-spec.md §12,
- *       docs/defi-strategies-spec.md §11.
+ * Spec: docs/multi-agent-architecture-spec.md §12.
  *
- * Pure switch on `tool_name`. NO LLM call. NO `tool_pending` emission
- * (the mobile DeFi stubs at `services/agent-executors/defi/stub.ts`
- * own the response shape; the server handler exists only because the
- * spec's topology requires every agent to have a handler — when the
- * real DeFi backend lands this is where the LLM + adapter logic goes).
- *
- * `status: "stubbed"` strings are SENTINELS. Core's prompt
- * (`agents/core/prompts.ts`) paraphrases them into friendly copy.
- * Mobile never renders them verbatim (CLAUDE.md user-facing-error
- * rule).
- *
- * Flip path: when `docs/defi-strategies-spec.md` is implemented,
- * replace this function with the real adapter-routing logic. The
- * card's `status` flips from `stub` to `ready`, the mobile stub
- * executors are replaced. Nothing else in the topology changes.
+ * Like the wallet handler, this is a pure dispatcher. Core emits a defi-owned
+ * tool call, the orchestrator hands it here, and this handler packages it as a
+ * `tool_pending` envelope for mobile.
  */
 
-import type { AgentTask } from '../types'
+import { getAgentCard } from '../registry'
+import type { AgentTask, WalletContext } from '../types'
+import { TOOL_REGISTRY } from '../../tools/registry'
 
-const STUB_MESSAGE = 'DeFi agent is not yet wired up.'
+export interface ToolPendingEnvelope {
+  origin_agent_id: 'defi'
+  tool_call_id: string
+  name: string
+  input: Record<string, unknown>
+  wallet_context: WalletContext
+}
 
-/**
- * Three-row sample. Must stay in lockstep with
- * `services/agent-executors/defi/stub.ts` — the mobile stub returns
- * these to the LLM (via `tool_result.data`), and Core's prompt
- * paraphrases. If you edit one, edit the other.
- */
-const FIXED_OPPORTUNITIES = [
-  {
-    id: 'stub-aave-base-usdc',
-    protocol_slug: 'aave-v3-base',
-    chain_id: 8453,
-    asset_symbol: 'USDC',
-    apy: 0.045,
-    risk_tier: 'conservative' as const,
-  },
-  {
-    id: 'stub-morpho-base-eth',
-    protocol_slug: 'morpho-base',
-    chain_id: 8453,
-    asset_symbol: 'ETH',
-    apy: 0.061,
-    risk_tier: 'balanced' as const,
-  },
-  {
-    id: 'stub-pendle-arb-usdt',
-    protocol_slug: 'pendle-arb',
-    chain_id: 42161,
-    asset_symbol: 'USDT',
-    apy: 0.092,
-    risk_tier: 'aggressive' as const,
-  },
-]
-
-export interface DefiDispatch {
+export interface DefiDispatchInput {
   tool_name: string
+  input: Record<string, unknown>
+  tool_call_id: string
 }
 
 export interface HandleDefiTaskParams {
   task: AgentTask
-  dispatch: DefiDispatch
+  wallet_context: WalletContext
+  dispatch: DefiDispatchInput
 }
 
-export interface DefiTaskResult {
-  output: unknown
-}
+export type DefiHandlerOutput =
+  | { kind: 'tool_pending'; envelope: ToolPendingEnvelope }
+  | { kind: 'refused'; reason: string }
 
 export function handleDefiTask(
   params: HandleDefiTaskParams,
-): DefiTaskResult {
-  switch (params.dispatch.tool_name) {
-    case 'defi_list_opportunities':
-      return { output: { opportunities: FIXED_OPPORTUNITIES } }
-    case 'defi_list_positions':
-      return { output: { positions: [] } }
-    case 'defi_deposit':
-    case 'defi_withdraw':
-    case 'defi_rebalance':
-      return { output: { status: 'stubbed', message: STUB_MESSAGE } }
-    default:
-      // Unknown defi_* tool — same friendly sentinel so Core paraphrases.
-      return { output: { status: 'stubbed', message: STUB_MESSAGE } }
+): DefiHandlerOutput {
+  const { dispatch, wallet_context } = params
+  const card = getAgentCard('defi')
+  if (!card) {
+    return {
+      kind: 'refused',
+      reason: 'defi_card_missing',
+    }
   }
+  if (!isOwnedByDefi(dispatch.tool_name, card.tool_prefixes)) {
+    return {
+      kind: 'refused',
+      reason: 'out_of_prefix',
+    }
+  }
+  if (!TOOL_REGISTRY[dispatch.tool_name]) {
+    return {
+      kind: 'refused',
+      reason: 'unknown_tool',
+    }
+  }
+  return {
+    kind: 'tool_pending',
+    envelope: {
+      origin_agent_id: 'defi',
+      tool_call_id: dispatch.tool_call_id,
+      name: dispatch.tool_name,
+      input: dispatch.input,
+      wallet_context,
+    },
+  }
+}
+
+function isOwnedByDefi(toolName: string, prefixes: string[]): boolean {
+  for (const prefix of prefixes) {
+    if (prefix.endsWith('_')) {
+      if (toolName.startsWith(prefix)) return true
+    } else if (prefix === toolName) {
+      return true
+    }
+  }
+  return false
 }

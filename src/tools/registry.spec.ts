@@ -185,8 +185,8 @@ describe('TOOL_REGISTRY', () => {
       { name: 'get_supported_chains', category: 'blockchain_read', executor: 'mobile', capability: 'read' },
       { name: 'get_wallet_tokens', category: 'blockchain_read', executor: 'mobile', capability: 'read' },
 
-      // Mobile / blockchain_read — simulate
-      { name: 'estimate_gas', category: 'blockchain_read', executor: 'mobile', capability: 'simulate' },
+      // Mobile / blockchain_read — read
+      { name: 'estimate_gas', category: 'blockchain_read', executor: 'mobile', capability: 'read' },
 
       // Mobile / blockchain_write — write
       { name: 'send_native_token', category: 'blockchain_write', executor: 'mobile', capability: 'write' },
@@ -210,8 +210,8 @@ describe('TOOL_REGISTRY', () => {
       { name: 'deposit_points', category: 'points', executor: 'mobile', capability: 'write' },
       { name: 'execute_redemption', category: 'points', executor: 'mobile', capability: 'write' },
 
-      // Mobile / points — simulate
-      { name: 'request_authentication', category: 'points', executor: 'mobile', capability: 'simulate' },
+      // Mobile / points — read (interactive login flow, no signature/mutation)
+      { name: 'request_authentication', category: 'points', executor: 'mobile', capability: 'read' },
 
       // Mobile / utility (address book) — read
       { name: 'get_address_book', category: 'utility', executor: 'mobile', capability: 'read' },

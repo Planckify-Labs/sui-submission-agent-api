@@ -16,6 +16,8 @@ services:
       VALKEY_URL: ${VALKEY_URL}
       # AI Model
       KIMI_K2_API_KEY: ${KIMI_K2_API_KEY}
+      # Speech-to-text (required at boot — see src/main.ts requiredKeys check)
+      STT_AI_API_KEY: ${STT_AI_API_KEY}
       # API Auth
       CHAT_API_KEY: ${CHAT_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}

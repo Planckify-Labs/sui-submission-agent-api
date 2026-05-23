@@ -216,6 +216,30 @@ export function buildHumanSummary(
         ? `Rebalance position ${position} → ${target}`
         : `Rebalance position ${position}`;
     }
+    case 'defi_claim': {
+      const position = str(input, 'position_id');
+      return `Claim rewards on position ${position}`;
+    }
+    case 'defi_cross_chain_deposit': {
+      const amount = str(input, 'amount_raw');
+      const asset = str(input, 'from_asset_symbol');
+      const fromChain = str(input, 'from_chain_id');
+      const toChain = str(input, 'to_chain_id');
+      const slug = str(input, 'protocol_slug');
+      return `Bridge ${amount} ${asset} from chain ${fromChain} → ${toChain} and deposit into ${slug}`;
+    }
+    case 'defi_compound': {
+      const position = str(input, 'position_id');
+      return `Claim rewards on position ${position} and redeposit`;
+    }
+
+    // ─── defi / simulate ───────────────────────────────────────────────────
+    case 'defi_simulate_deposit': {
+      const amount = str(input, 'amount_raw');
+      const asset = str(input, 'asset_symbol');
+      const slug = str(input, 'protocol_slug');
+      return `Simulate depositing ${amount} ${asset} into ${slug}`;
+    }
 
     // ─── points / simulate ─────────────────────────────────────────────────
     // request_authentication: shows login UI on the mobile. No tool inputs.

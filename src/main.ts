@@ -15,6 +15,15 @@ async function bootstrap() {
   // process logs; users never see the raw violation string.
   loadAgentCards()
   assertRegistryInvariants(Object.keys(TOOL_REGISTRY))
+
+  // Mandatory API Key checks
+  const requiredKeys = ['KIMI_K2_API_KEY', 'CHAT_API_KEY', 'STT_AI_API_KEY']
+  for (const key of requiredKeys) {
+    if (!process.env[key]) {
+      throw new Error(`${key} is not set. This API key is required for the agent to function.`)
+    }
+  }
+
   const fastifyAdapter = new FastifyAdapter({
     // Enable streaming support
     bodyLimit: 1024 * 1024, // 1MB

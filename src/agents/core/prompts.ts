@@ -8,10 +8,6 @@
  * face the user talks to. Specialists exist for routing only; users
  * never see their names except for the optional "via X specialist"
  * badge (Task 17) which is set by the orchestrator, NOT by Core.
- *
- * The stub-DeFi paraphrase contract is verbatim: when a `defi_*` result
- * carries `status: "stubbed"`, the user-visible reply is the fixed
- * friendly copy here. The raw `message` sentinel NEVER reaches users.
  */
 
 import { listAgents } from '../registry'
@@ -32,16 +28,6 @@ For clarification questions, emit \`core_clarify({ question })\`. For
 narrative pass-through (a specialist should stream prose to the user
 directly, e.g. an in-depth DeFi explainer), emit
 \`core_handoff({ to, brief, conversational: true })\`.`
-
-const DEFI_STUB_CONTRACT = `DeFi tools (\`defi_*\`) are stubbed in v1. Any \`defi_*\` tool result
-with \`status: "stubbed"\` MUST be paraphrased to the user with this
-exact copy:
-
-  "DeFi Strategies are coming soon — this action is not yet available."
-
-You MAY then offer an alternative the user can take today (e.g. a
-manual transfer). NEVER surface the raw \`message\` field from the
-stubbed result to the user.`
 
 const FRIENDLY_ERRORS = `User-facing errors are always hand-written friendly copy. Never echo
 \`error\`, \`err.message\`, response bodies, status codes, RPC payloads,
@@ -71,7 +57,7 @@ function routingHints(): string {
  * file (spec §13 promises this is a six-step checklist).
  */
 function buildCoreV1(): string {
-  return [PERSONA, ROUTING, DEFI_STUB_CONTRACT, FRIENDLY_ERRORS, routingHints()]
+  return [PERSONA, ROUTING, FRIENDLY_ERRORS, routingHints()]
     .filter(Boolean)
     .join('\n\n')
 }

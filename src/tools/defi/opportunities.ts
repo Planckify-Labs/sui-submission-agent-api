@@ -4,10 +4,9 @@
  * Spec: docs/multi-agent-architecture-spec.md §12,
  *       docs/defi-strategies-spec.md §11.
  *
- * v1: stub. Mobile executor returns canned payloads
- * (`services/agent-executors/defi/stub.ts`, Task 08). When the real
- * DeFi backend lands, the schemas here are unchanged — only the
- * executor swaps. NO RENAMES at flip time (§14.2).
+ * Mobile executor lives at `services/agent-executors/defi/reads.ts`
+ * and proxies to the live `/strategies/*` backend. Schemas here
+ * stay unchanged across the stub → real flip (§14.2).
  */
 
 import { composeAgentTools } from '../internal/compose'
@@ -19,7 +18,7 @@ const DEFI_LIST_OPPORTUNITIES: ToolMeta = {
   executor: 'mobile',
   capability: 'read',
   description:
-    'List DeFi yield opportunities filtered by tier, chain, asset, or liquidity profile. Use for "show me where I can park USDC" or "what conservative options are on Base". v1: stubbed — returns a fixed sample so the topology is exercised before the real backend lands.',
+    'List DeFi yield opportunities filtered by tier, chain, asset, or liquidity profile. Use for "show me where I can park USDC" or "what conservative options are on Base".',
   inputSchema: {
     type: 'object',
     properties: {
@@ -58,7 +57,7 @@ const DEFI_LIST_POSITIONS: ToolMeta = {
   executor: 'mobile',
   capability: 'read',
   description:
-    "List the connected wallet's open DeFi positions. v1: stubbed — returns an empty array.",
+    "List the connected wallet's open DeFi positions.",
   inputSchema: {
     type: 'object',
     properties: {},
