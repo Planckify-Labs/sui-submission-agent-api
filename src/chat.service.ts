@@ -69,6 +69,17 @@ const DEFAULT_MODEL_RUNNER: ModelRunner = ({ model, messages, tools, system }) =
     tools,
     system,
     maxRetries: 2,
+    // The AI SDK otherwise collapses provider/stream failures into a
+    // generic "No output generated. Check the stream for errors." when
+    // `.toolCalls` / `.textStream` is awaited downstream. `onError` is
+    // the only place the REAL cause (provider 4xx, tool-schema reject,
+    // empty completion, context overflow) is exposed — log it so x402
+    // and other tool failures are actually diagnosable. Server-side log
+    // only; never surfaced to the user (CLAUDE.md).
+    onError: ({ error }) => {
+      // eslint-disable-next-line no-console
+      console.error('[chat.streamText] underlying stream error:', error)
+    },
   }) as unknown as StreamTextCall
 
 /**
@@ -480,6 +491,26 @@ export class ChatService {
           executor: 'mobile',
           capability: 'write',
           description: `Unregistered tool ${tc.toolName}`,
+        }
+
+        // x402 demo determinism: the model tends to point `x402_fetch` at
+        // public APIs it already knows (DeFiLlama, invented hosts) instead
+        // of the configured x402 resource — prompt instructions aren't
+        // reliable enough. When `X402_SECURITY_AUDIT_URL` is set (test
+        // harness only; unset in prod), pin the url to it so the agent
+        // always hits the real x402 seller. Env-driven, not hardcoded.
+        if (tc.toolName === 'x402_fetch' && process.env.X402_SECURITY_AUDIT_URL) {
+          const pinned = process.env.X402_SECURITY_AUDIT_URL
+          const input = (
+            tc.input && typeof tc.input === 'object' ? tc.input : {}
+          ) as Record<string, unknown>
+          if (input.url !== pinned) {
+            this.logger.warn(
+              `[x402] pinning url ${String(input.url)} → ${pinned}`,
+            )
+            input.url = pinned
+            tc.input = input
+          }
         }
 
         const pendingResult = yield* this.executeMobileTool(

@@ -99,21 +99,49 @@ const DEFI_REBALANCE: ToolMeta = {
   executor: 'mobile',
   capability: 'write',
   description:
-    'Move a position from one protocol to another (two-step: withdraw + deposit).',
+    'Move a position from one protocol to another (two-step: withdraw the ' +
+    'whole source position, then deposit into the chosen target). YOU pick ' +
+    'the target — rank candidates from `defi_list_opportunities` (and the ' +
+    'pool-safety oracle when available) and pass the winner explicitly via ' +
+    '`to_protocol_slug` + `to_asset_symbol`.',
   inputSchema: {
     type: 'object',
     properties: {
-      position_id: {
-        type: 'string',
-        description: 'Position id to rebalance (from `defi_list_positions`).',
-      },
-      target_protocol_slug: {
+      from_position_id: {
         type: 'string',
         description:
-          'Optional target protocol slug. When omitted the executor picks from the user\'s current tier-filtered opportunities.',
+          'Id of the position to exit (from `defi_list_positions`).',
+      },
+      to_protocol_slug: {
+        type: 'string',
+        description:
+          'Target protocol slug to move into, e.g. "aave-v3-base-sepolia" ' +
+          '(from `defi_list_opportunities`).',
+      },
+      to_asset_symbol: {
+        type: 'string',
+        description: 'Asset symbol to deposit into the target, e.g. "USDC".',
+      },
+      to_asset_contract: ADDRESS_PROP(
+        'Optional explicit target ERC20 contract (lowercased). When omitted ' +
+          'the executor resolves it from the mobile token registry.',
+      ),
+      to_amount_raw: {
+        type: 'string',
+        pattern: '^[0-9]+$',
+        description:
+          "Optional decimal-string amount in the target asset's smallest " +
+          'unit. When omitted the executor redeposits the full amount ' +
+          'withdrawn from the source position.',
+      },
+      expected_apy: {
+        type: 'number',
+        description:
+          'Optional APY hint for the target opportunity; validated against ' +
+          'OpportunityCache (±5%).',
       },
     },
-    required: ['position_id'],
+    required: ['from_position_id', 'to_protocol_slug', 'to_asset_symbol'],
     additionalProperties: false,
   },
 }

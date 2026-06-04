@@ -25,8 +25,10 @@ async function bootstrap() {
   }
 
   const fastifyAdapter = new FastifyAdapter({
-    // Enable streaming support
-    bodyLimit: 1024 * 1024, // 1MB
+    // Enable streaming support. 10MB: mobile `POST /chat/respond` carries
+    // tool results that echo JSON payloads (e.g. a 75-item opportunity
+    // list, an x402 resource body); 1MB was too tight and produced 413s.
+    bodyLimit: 10 * 1024 * 1024, // 10MB
   })
 
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -59,6 +61,16 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000
   await app.listen(port, '0.0.0.0')
   console.log(`Server is running on port ${port}`)
+  // x402 Phase 5 config visibility — if this is unset, the Core prompt
+  // carries NO security-audit URL and the agent can't call x402_fetch
+  // for audit/exploit questions (it will answer from memory instead).
+  console.log(
+    `[x402] security-audit oracle: ${
+      process.env.X402_SECURITY_AUDIT_URL
+        ? process.env.X402_SECURITY_AUDIT_URL
+        : 'NOT CONFIGURED (set X402_SECURITY_AUDIT_URL in .env and restart)'
+    }`,
+  )
 }
 
 bootstrap()

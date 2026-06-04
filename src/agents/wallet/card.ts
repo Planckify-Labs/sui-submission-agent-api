@@ -45,6 +45,8 @@ export const walletCard: AgentCard = {
     // TOOL_REGISTRY. Add them here so mobile boot doesn't crash.
     'cancel_',
     'create_',
+    // `x402_` (x402_fetch) — agent-initiated x402 micropayments (Phase 5).
+    'x402_',
   ],
   capabilities: [
     'read_balance',

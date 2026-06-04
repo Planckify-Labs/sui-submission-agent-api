@@ -210,8 +210,8 @@ export function buildHumanSummary(
       return `Withdraw ${amount} from position ${position}`;
     }
     case 'defi_rebalance': {
-      const position = str(input, 'position_id');
-      const target = str(input, 'target_protocol_slug', '');
+      const position = str(input, 'from_position_id');
+      const target = str(input, 'to_protocol_slug', '');
       return target
         ? `Rebalance position ${position} → ${target}`
         : `Rebalance position ${position}`;

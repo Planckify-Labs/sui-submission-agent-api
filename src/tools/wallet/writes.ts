@@ -143,4 +143,47 @@ export const WALLET_WRITE_TOOLS: Record<string, ToolMeta> = composeAgentTools('w
       additionalProperties: false,
     },
   },
+
+  // ─── Agent-initiated x402 micropayments (Phase 5) ───────────────────────────
+  // Onchain-adjacent ⇒ executor `mobile` (the device holds the signed
+  // ERC-7710 allowance + settles via the relayer). Capability `write`: it
+  // spends from the user's pre-authorized agent allowance, bounded on-chain
+  // by the delegation caveat. The mobile executor refuses (and tells the
+  // user to grant an allowance) when no `delegation` grant exists.
+  x402_fetch: {
+    name: 'x402_fetch',
+    category: 'blockchain_write',
+    executor: 'mobile',
+    capability: 'write',
+    description:
+      'Fetch a paid resource that answers HTTP 402 Payment Required with an ' +
+      'x402 / ERC-7710 challenge (premium data feeds, security oracles, gated ' +
+      'API endpoints) and settle the sub-dollar payment automatically from the ' +
+      "user's pre-authorized agent allowance. Returns the resource body plus a " +
+      'settlement summary ({ paid, amount_usdc, rail, tx_hash }). If the price ' +
+      'exceeds the remaining allowance the result is paid:false with ' +
+      'over_budget:true — surface the top-up message, never retry blindly. ' +
+      'Use this instead of a plain HTTP read whenever a resource requires payment.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'Full HTTPS URL of the protected resource to fetch.',
+        },
+        method: {
+          type: 'string',
+          description: 'HTTP method for the resource. Defaults to GET.',
+        },
+        maxSpendUsdc: {
+          type: 'number',
+          description:
+            'Optional per-call ceiling in USDC (e.g. 0.5). Applied on top of ' +
+            "the user's on-chain allowance — only ever narrows it, never widens.",
+        },
+      },
+      required: ['url'],
+      additionalProperties: false,
+    },
+  },
 });
