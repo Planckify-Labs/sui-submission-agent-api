@@ -45,11 +45,15 @@ function makePayload(
 // A stub MCPClientService that does NOT spawn a subprocess. Only the bits
 // ChatService touches (`getTools`) are implemented.
 class StubMCPClientService {
-  async getTools() {
-    return {}
+  getTools() {
+    return Promise.resolve({})
   }
-  async onModuleInit() {}
-  async onModuleDestroy() {}
+  onModuleInit() {
+    return Promise.resolve()
+  }
+  onModuleDestroy() {
+    return Promise.resolve()
+  }
 }
 
 // A stub ConversationService — the persistence path is exercised in
@@ -58,26 +62,26 @@ class StubMCPClientService {
 // so tests that don't pass `conversation_id` are unaffected, and the
 // `done` SSE event still emits cleanly.
 class StubConversationService {
-  async getConversation() {
-    return null
+  getConversation() {
+    return Promise.resolve(null)
   }
-  async createConversation() {
-    return { id: 'stub-conv', title: 'stub' } as unknown as {
+  createConversation() {
+    return Promise.resolve({ id: 'stub-conv', title: 'stub' } as unknown as {
       id: string
       title: string
-    }
+    })
   }
-  async appendMessages() {
-    return
+  appendMessages() {
+    return Promise.resolve()
   }
-  async listConversations() {
-    return []
+  listConversations() {
+    return Promise.resolve([])
   }
-  async deleteConversation() {
-    return
+  deleteConversation() {
+    return Promise.resolve()
   }
-  async updateTitle() {
-    return { id: 'stub-conv', title: 'stub' }
+  updateTitle() {
+    return Promise.resolve({ id: 'stub-conv', title: 'stub' })
   }
 }
 
@@ -125,7 +129,7 @@ describe('ChatController', () => {
     await app.close()
   })
 
-  async function httpPost(
+  function httpPost(
     url: string,
     body: unknown,
     headers: Record<string, string> = {},
@@ -175,7 +179,10 @@ describe('ChatController', () => {
         { 'x-api-key': TEST_API_KEY },
       )
       expect(res.statusCode).toBe(404)
-      const body = res.json() as Record<string, any>
+      const body = res.json() as {
+        code?: string
+        message?: { code?: string } | string
+      }
       const code =
         body.code ??
         (typeof body.message === 'object' ? body.message?.code : undefined)

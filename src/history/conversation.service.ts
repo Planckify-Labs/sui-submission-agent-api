@@ -13,7 +13,7 @@ import { sanitizeMessages } from './sanitize-messages'
 export class ConversationService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createConversation(
+  createConversation(
     walletAddress: string,
     chainId: number,
     firstUserMessage: ModelMessage,
@@ -59,7 +59,7 @@ export class ConversationService {
     })
   }
 
-  async listConversations(
+  listConversations(
     walletAddress: string,
     cursor?: Date,
     limit?: number,
@@ -68,7 +68,7 @@ export class ConversationService {
     return this.prisma.listConversationSummaries(walletAddress, take, cursor)
   }
 
-  async getConversation(
+  getConversation(
     id: string,
     walletAddress: string,
   ): Promise<ConversationWithMessages | null> {
@@ -91,7 +91,7 @@ export class ConversationService {
    * Returns an empty list if no tasks exist for the conversation;
    * callers should not interpret an empty list as "feature disabled".
    */
-  async listAgentTasks(conversationId: string) {
+  listAgentTasks(conversationId: string) {
     return this.prisma.agentTask.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },

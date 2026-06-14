@@ -331,10 +331,10 @@ async function runOneToolCall(args: {
   }
 }
 
-async function handleCoreAffordance(args: {
+function handleCoreAffordance(args: {
   call: { toolCallId: string; toolName: string; input: unknown }
   sse_sink: SseSink
-}): Promise<void> {
+}): void {
   const { call, sse_sink } = args
 
   if (call.toolName === 'core_clarify') {

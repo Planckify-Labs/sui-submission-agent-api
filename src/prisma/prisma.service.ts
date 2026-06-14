@@ -58,7 +58,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
 
   // ── Cache-aware conversation list ─────────────────────────────────
 
-  async findManyConversations(
+  findManyConversations(
     args?: Parameters<PrismaClientType['conversation']['findMany']>[0],
   ) {
     return this.rawClient.conversation.findMany(args ?? {})
@@ -134,7 +134,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     return result
   }
 
-  async updateManyConversations(
+  updateManyConversations(
     args: Parameters<PrismaClientType['conversation']['updateMany']>[0],
   ) {
     // For updateMany we don't have the wallet easily — just delegate
@@ -159,19 +159,19 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     return result
   }
 
-  async findFirstConversation(
+  findFirstConversation(
     args: Parameters<PrismaClientType['conversation']['findFirst']>[0],
   ) {
     return this.rawClient.conversation.findFirst(args)
   }
 
-  async findFirstOrThrowConversation(
+  findFirstOrThrowConversation(
     args: Parameters<PrismaClientType['conversation']['findFirstOrThrow']>[0],
   ) {
     return this.rawClient.conversation.findFirstOrThrow(args)
   }
 
-  async createManyMessages(
+  createManyMessages(
     args: Parameters<PrismaClientType['message']['createMany']>[0],
   ) {
     return this.rawClient.message.createMany(args)

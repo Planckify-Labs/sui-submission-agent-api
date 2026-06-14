@@ -137,7 +137,7 @@ export class ChatController {
    */
   @Post('respond')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async respond(@Body() payload: unknown): Promise<void> {
+  respond(@Body() payload: unknown): void {
     const parsed = mobileResponseSchema.safeParse(payload)
     if (!parsed.success) {
       throw new BadRequestException({
@@ -193,7 +193,7 @@ export class ChatController {
    */
   @Post('progress')
   @HttpCode(HttpStatus.ACCEPTED)
-  async progress(@Body() payload: unknown): Promise<void> {
+  progress(@Body() payload: unknown): void {
     const parsed = progressRequestSchema.safeParse(payload)
     if (!parsed.success) {
       throw new BadRequestException({

@@ -40,11 +40,13 @@ function recordingSink(responses: Record<string, unknown> = {}): SseSink & {
     emit(frame) {
       frames.push(frame)
     },
-    async awaitMobileResult(toolCallId) {
+    awaitMobileResult(toolCallId) {
       if (!(toolCallId in responses)) {
-        throw new Error(`test: no canned response for ${toolCallId}`)
+        return Promise.reject(
+          new Error(`test: no canned response for ${toolCallId}`),
+        )
       }
-      return responses[toolCallId]
+      return Promise.resolve(responses[toolCallId])
     },
   }
 }
@@ -61,6 +63,7 @@ interface MockTurn {
 function mockRunner(turn: MockTurn) {
   return () => ({
     textStream: (async function* () {
+      await Promise.resolve()
       if (turn.text) yield turn.text
     })(),
     toolCalls: Promise.resolve(turn.toolCalls ?? []),

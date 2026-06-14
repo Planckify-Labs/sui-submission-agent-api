@@ -37,8 +37,8 @@ export class ValkeyService implements OnModuleInit, OnModuleDestroy {
     await this.client?.quit()
   }
 
-  async get(key: string): Promise<string | null> {
-    if (!this.client) return null
+  get(key: string): Promise<string | null> {
+    if (!this.client) return Promise.resolve(null)
     return this.client.get(key)
   }
 

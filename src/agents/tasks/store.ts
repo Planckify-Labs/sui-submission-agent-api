@@ -61,7 +61,7 @@ export function createInMemoryTaskStore(): TaskStore {
   const peer = new Map<string, AgentPeerMessage[]>()
 
   return {
-    async createTask(input) {
+    createTask(input) {
       const now = new Date()
       const task: AgentTask = {
         id: randomUUID(),
@@ -76,18 +76,20 @@ export function createInMemoryTaskStore(): TaskStore {
       }
       tasks.set(task.id, task)
       peer.set(task.id, [])
-      return task
+      return Promise.resolve(task)
     },
 
-    async transitionTask(taskId, next, output) {
+    transitionTask(taskId, next, output) {
       const task = tasks.get(taskId)
       if (!task) {
-        throw new Error(`[tasks/store] no such task "${taskId}"`)
+        return Promise.reject(new Error(`[tasks/store] no such task "${taskId}"`))
       }
       const allowed = VALID_TRANSITIONS[task.status]
       if (!allowed.includes(next)) {
-        throw new Error(
-          `[tasks/store] illegal transition: ${task.status} → ${next} for task "${taskId}"`,
+        return Promise.reject(
+          new Error(
+            `[tasks/store] illegal transition: ${task.status} → ${next} for task "${taskId}"`,
+          ),
         )
       }
       const updated: AgentTask = {
@@ -97,22 +99,24 @@ export function createInMemoryTaskStore(): TaskStore {
         updated_at: new Date(),
       }
       tasks.set(taskId, updated)
-      return updated
+      return Promise.resolve(updated)
     },
 
-    async appendPeerMessage(input) {
+    appendPeerMessage(input) {
       if (!tasks.has(input.task_id)) {
-        throw new Error(
-          `[tasks/store] cannot append peer message to missing task "${input.task_id}"`,
+        return Promise.reject(
+          new Error(
+            `[tasks/store] cannot append peer message to missing task "${input.task_id}"`,
+          ),
         )
       }
       const list = peer.get(input.task_id) ?? []
       list.push(input.message)
       peer.set(input.task_id, list)
-      return input.message
+      return Promise.resolve(input.message)
     },
 
-    async listTasksForConversation(conversationId) {
+    listTasksForConversation(conversationId) {
       const out: Array<AgentTask & { peer_messages: AgentPeerMessage[] }> = []
       for (const task of tasks.values()) {
         if (task.conversation_id !== conversationId) continue
@@ -122,7 +126,7 @@ export function createInMemoryTaskStore(): TaskStore {
         })
       }
       out.sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
-      return out
+      return Promise.resolve(out)
     },
   }
 }

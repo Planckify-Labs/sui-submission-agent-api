@@ -107,8 +107,8 @@ async function main() {
     }
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return { tools };
+  server.setRequestHandler(ListToolsRequestSchema, () => {
+    return Promise.resolve({ tools });
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {

@@ -31,34 +31,38 @@ const wallet: WalletContext = {
 
 class StubMCPClientService {
   public tools: ToolSet = {}
-  async getTools(): Promise<ToolSet> {
-    return this.tools
+  getTools(): Promise<ToolSet> {
+    return Promise.resolve(this.tools)
   }
-  async onModuleInit() {}
-  async onModuleDestroy() {}
+  onModuleInit() {
+    return Promise.resolve()
+  }
+  onModuleDestroy() {
+    return Promise.resolve()
+  }
 }
 
 // Stub ConversationService — `ChatService.persistTurnSoFar` is a no-op
 // when `session.conversationId` is unset (which is the case for every
 // `seedSession()` here), but the constructor still needs an injectable.
 class StubConversationService {
-  async getConversation() {
-    return null
+  getConversation() {
+    return Promise.resolve(null)
   }
-  async createConversation() {
-    return { id: 'stub-conv', title: 'stub' }
+  createConversation() {
+    return Promise.resolve({ id: 'stub-conv', title: 'stub' })
   }
-  async appendMessages() {
-    return
+  appendMessages() {
+    return Promise.resolve()
   }
-  async listConversations() {
-    return []
+  listConversations() {
+    return Promise.resolve([])
   }
-  async deleteConversation() {
-    return
+  deleteConversation() {
+    return Promise.resolve()
   }
-  async updateTitle() {
-    return { id: 'stub-conv', title: 'stub' }
+  updateTitle() {
+    return Promise.resolve({ id: 'stub-conv', title: 'stub' })
   }
 }
 
@@ -80,6 +84,7 @@ function makeScriptedRunner(script: ScriptedStep[]): ModelRunner {
     const chunks = step.text ? [step.text] : []
     const textStream: AsyncIterable<string> = {
       async *[Symbol.asyncIterator]() {
+        await Promise.resolve()
         for (const chunk of chunks) yield chunk
       },
     }

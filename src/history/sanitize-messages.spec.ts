@@ -65,7 +65,14 @@ describe('sanitizeMessages', () => {
     ] as unknown as ModelMessage[]
 
     const out = sanitizeMessages(messages) as unknown as Array<{
-      content: Array<{ output: { value: any } }>
+      content: Array<{
+        output: {
+          value: {
+            arr: Array<Record<string, string>>
+            nested: Record<string, string>
+          }
+        }
+      }>
     }>
     const value = out[0].content[0].output.value
     expect(value.arr[0].private_key).toBe('[REDACTED]')

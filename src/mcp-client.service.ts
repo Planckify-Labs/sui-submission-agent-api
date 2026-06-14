@@ -59,7 +59,7 @@ export class MCPClientService implements OnModuleInit, OnModuleDestroy {
     await this.close();
   }
 
-  async getTools(): Promise<Record<string, any>> {
+  async getTools(): Promise<Record<string, unknown>> {
     if (!this.client) {
       this.logger.warn('MCP client not connected, returning empty tool set');
       return {};

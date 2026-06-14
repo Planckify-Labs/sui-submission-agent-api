@@ -92,39 +92,39 @@ async function main() {
     }
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return { tools };
+  server.setRequestHandler(ListToolsRequestSchema, () => {
+    return Promise.resolve({ tools });
   });
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, (request) => {
     const { name, arguments: args } = request.params;
 
     try {
       switch (name) {
         case 'owner': {
-          const validatedInput = OwnerToolInputSchema.parse(args || {});
+          OwnerToolInputSchema.parse(args || {});
           const result = handleOwnerTool();
-          return {
+          return Promise.resolve({
             content: [
               {
                 type: 'text',
                 text: JSON.stringify(result),
               },
             ],
-          };
+          });
         }
 
         case 'calculator': {
           const validatedInput = CalculatorToolInputSchema.parse(args);
           const result = handleCalculatorTool(validatedInput);
-          return {
+          return Promise.resolve({
             content: [
               {
                 type: 'text',
                 text: JSON.stringify(result),
               },
             ],
-          };
+          });
         }
 
         default:
@@ -132,9 +132,9 @@ async function main() {
       }
     } catch (error) {
       if (error instanceof z.ZodError) {
-        throw new Error(`Invalid input: ${error.message}`);
+        return Promise.reject(new Error(`Invalid input: ${error.message}`));
       }
-      throw error;
+      return Promise.reject(error);
     }
   });
 
