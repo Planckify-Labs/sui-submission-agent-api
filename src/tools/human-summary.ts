@@ -241,6 +241,17 @@ export function buildHumanSummary(
       return `Simulate depositing ${amount} ${asset} into ${slug}`;
     }
 
+    // x402_fetch: agent-initiated paid-resource micropayment. The model
+    // passes a `resource` capability id (the server resolves the URL); the
+    // payment settles silently from the pre-authorized allowance, so this
+    // summary is informational rather than an approval prompt.
+    case 'x402_fetch': {
+      const resource = str(input, 'resource', '');
+      return resource
+        ? `Buy the "${resource}" resource`
+        : 'Buy a paid resource';
+    }
+
     // ─── points / simulate ─────────────────────────────────────────────────
     // request_authentication: shows login UI on the mobile. No tool inputs.
     case 'request_authentication':

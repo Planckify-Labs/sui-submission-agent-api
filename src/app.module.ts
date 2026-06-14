@@ -11,6 +11,7 @@ import { TranscribeController } from './transcribe.controller'
 import { ValkeyModule } from './valkey/valkey.module'
 import { PrismaModule } from './prisma/prisma.module'
 import { HistoryModule } from './history/history.module'
+import { X402CatalogService } from './x402/x402-catalog.service'
 
 @Module({
   imports: [
@@ -23,6 +24,13 @@ import { HistoryModule } from './history/history.module'
     HistoryModule,
   ],
   controllers: [AppController, ChatController, TranscribeController],
-  providers: [AppService, ChatService, ApiKeyGuard, MCPClientService],
+  providers: [
+    AppService,
+    ChatService,
+    ApiKeyGuard,
+    MCPClientService,
+    // Warms the DB-backed x402 resource catalog at boot (Part I §5.2).
+    X402CatalogService,
+  ],
 })
 export class AppModule {}

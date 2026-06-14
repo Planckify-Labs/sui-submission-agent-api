@@ -41,6 +41,10 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get $transaction() {
     return this.rawClient.$transaction.bind(this.rawClient)
   }
+  /** x402 paid-resource catalog (x402-extensibility-spec Part I). */
+  get x402Resource() {
+    return this.rawClient.x402Resource
+  }
 
   constructor(private readonly valkey: ValkeyService) {}
 

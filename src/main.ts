@@ -7,6 +7,7 @@ import { AppModule } from './app.module'
 import { loadAgentCards } from './agents/loadAgentCards'
 import { assertRegistryInvariants } from './agents/registry'
 import { TOOL_REGISTRY } from './tools/registry'
+import { enabledResources } from './x402/catalog'
 
 async function bootstrap() {
   // Multi-agent registry boot — fail loud if cards / manifest / tool
@@ -61,15 +62,17 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000
   await app.listen(port, '0.0.0.0')
   console.log(`Server is running on port ${port}`)
-  // x402 Phase 5 config visibility — if this is unset, the Core prompt
-  // carries NO security-audit URL and the agent can't call x402_fetch
-  // for audit/exploit questions (it will answer from memory instead).
+  // x402 catalog visibility (x402-extensibility-spec §4). One line per
+  // enabled resource; empty means the agent can't call x402_fetch (no
+  // capability in the enum). Resources come exclusively from the DB
+  // (Valkey-cached) — seed the table once with `pnpm seed:x402`.
+  const x402Resources = enabledResources()
   console.log(
-    `[x402] security-audit oracle: ${
-      process.env.X402_SECURITY_AUDIT_URL
-        ? process.env.X402_SECURITY_AUDIT_URL
-        : 'NOT CONFIGURED (set X402_SECURITY_AUDIT_URL in .env and restart)'
-    }`,
+    x402Resources.length
+      ? `[x402] catalog (${x402Resources.length}): ${x402Resources
+          .map((r) => `${r.id} → ${r.url}`)
+          .join(', ')}`
+      : '[x402] catalog: EMPTY — seed the X402Resource table (pnpm seed:x402)',
   )
 }
 

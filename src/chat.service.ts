@@ -19,7 +19,12 @@ import {
 } from 'ai'
 import { MCPClientService } from './mcp-client.service'
 import { SessionService } from './session'
-import { TOOL_REGISTRY, type ToolMeta } from './tools/registry'
+import {
+  TOOL_REGISTRY,
+  type JsonSchemaObject,
+  type ToolMeta,
+} from './tools/registry'
+import { enabledResourceIds, resolveResourceRequest } from './x402/catalog'
 import { buildHumanSummary } from './tools/human-summary'
 import { buildSystemPrompt } from './agent/system-prompt'
 import type {
@@ -493,23 +498,50 @@ export class ChatService {
           description: `Unregistered tool ${tc.toolName}`,
         }
 
-        // x402 demo determinism: the model tends to point `x402_fetch` at
-        // public APIs it already knows (DeFiLlama, invented hosts) instead
-        // of the configured x402 resource — prompt instructions aren't
-        // reliable enough. When `X402_SECURITY_AUDIT_URL` is set (test
-        // harness only; unset in prod), pin the url to it so the agent
-        // always hits the real x402 seller. Env-driven, not hardcoded.
-        if (tc.toolName === 'x402_fetch' && process.env.X402_SECURITY_AUDIT_URL) {
-          const pinned = process.env.X402_SECURITY_AUDIT_URL
+        // x402 capability → concrete request (x402-extensibility-spec §6.1).
+        // Replaces the old URL pin-hack: the model now picks a `resource`
+        // enum id (or calls an x402-bound tool), and the server resolves the
+        // URL from the catalog — the model never types a URL (CI-2), so the
+        // "model invents a host" failure class the pin-hack patched over
+        // cannot occur. The mobile executor still receives `{ url, method,
+        // maxSpendUsdc }` exactly as before (N2).
+        if (tc.toolName === 'x402_fetch' || resolvedMeta.x402) {
           const input = (
             tc.input && typeof tc.input === 'object' ? tc.input : {}
           ) as Record<string, unknown>
-          if (input.url !== pinned) {
-            this.logger.warn(
-              `[x402] pinning url ${String(input.url)} → ${pinned}`,
-            )
-            input.url = pinned
-            tc.input = input
+          // Generic `x402_fetch`: id + params from the model input. An
+          // x402-bound tool: id is fixed server-side, the tool input IS the
+          // domain args.
+          const resourceId =
+            resolvedMeta.x402?.resourceId ?? String(input.resource ?? '')
+          const params = (
+            resolvedMeta.x402
+              ? input
+              : (input.params as Record<string, unknown> | undefined)
+          ) as Record<string, unknown> | undefined
+          const maxSpend =
+            typeof input.maxSpendUsdc === 'number'
+              ? input.maxSpendUsdc
+              : undefined
+          const resolved = resolveResourceRequest(
+            resourceId,
+            params ?? {},
+            maxSpend,
+          )
+          if (resolved) {
+            tc.input = {
+              url: resolved.url,
+              ...(resolved.method ? { method: resolved.method } : {}),
+              ...(resolved.maxSpendUsdc !== undefined
+                ? { maxSpendUsdc: resolved.maxSpendUsdc }
+                : {}),
+              ...(resolved.body !== undefined ? { body: resolved.body } : {}),
+            }
+          } else {
+            // Unknown/disabled capability — log internally only; the mobile
+            // executor surfaces friendly copy (CI-5). The schema enum makes
+            // this effectively unreachable for `x402_fetch`.
+            this.logger.warn(`[x402] unresolved resource capability`)
           }
         }
 
@@ -1017,6 +1049,26 @@ export function buildAgentToolResult(
 }
 
 /**
+ * Clone a tool schema with the live catalog ids injected into the
+ * `resource` enum (x402-extensibility-spec §6.1, CI-2). Keeps the static
+ * registry pure — the enabled set is data, resolved per build. When the
+ * catalog is empty the property is left without an enum (the schema stays
+ * valid; the prompt simply carries no resources).
+ */
+function withResourceEnum(schema: JsonSchemaObject): JsonSchemaObject {
+  const ids = enabledResourceIds()
+  const resourceProp = schema.properties?.resource
+  if (!resourceProp || ids.length === 0) return schema
+  return {
+    ...schema,
+    properties: {
+      ...schema.properties,
+      resource: { ...resourceProp, enum: ids },
+    },
+  }
+}
+
+/**
  * Convert `TOOL_REGISTRY` + the live MCP tool set into the `ai` SDK
  * `ToolSet` shape `streamText` expects.
  *
@@ -1063,10 +1115,17 @@ export function buildAllTools(
         required: [],
         additionalProperties: true,
       } as const)
+    // x402-extensibility-spec §6.1: inject the live catalog enum into
+    // `x402_fetch.resource` so the model can only pick a configured
+    // capability — it can never invent a URL (CI-2).
+    const finalSchema =
+      name === 'x402_fetch' && meta.inputSchema
+        ? withResourceEnum(meta.inputSchema)
+        : schema
     out[name] = defineTool({
       description: meta.description,
       inputSchema: jsonSchema<Record<string, unknown>>(
-        schema as unknown as Record<string, unknown>,
+        finalSchema as unknown as Record<string, unknown>,
       ),
     }) as Tool
   }

@@ -47,4 +47,11 @@ export interface ToolMeta {
    * omit this because the MCP client publishes its own schemas.
    */
   inputSchema?: JsonSchemaObject;
+  /**
+   * Marks this tool as x402-backed (x402-extensibility-spec §6.2, G3):
+   * its call is resolved against the catalog entry `resourceId` and
+   * settled through the same mobile `x402_fetch` machinery. Absent ⇒ a
+   * normal tool. "Some tools have it, some don't."
+   */
+  x402?: { resourceId: string };
 }

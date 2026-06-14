@@ -156,24 +156,31 @@ export const WALLET_WRITE_TOOLS: Record<string, ToolMeta> = composeAgentTools('w
     executor: 'mobile',
     capability: 'write',
     description:
-      'Fetch a paid resource that answers HTTP 402 Payment Required with an ' +
-      'x402 / ERC-7710 challenge (premium data feeds, security oracles, gated ' +
-      'API endpoints) and settle the sub-dollar payment automatically from the ' +
-      "user's pre-authorized agent allowance. Returns the resource body plus a " +
-      'settlement summary ({ paid, amount_usdc, rail, tx_hash }). If the price ' +
-      'exceeds the remaining allowance the result is paid:false with ' +
-      'over_budget:true — surface the top-up message, never retry blindly. ' +
-      'Use this instead of a plain HTTP read whenever a resource requires payment.',
+      'Fetch a paid resource (premium data feeds, security oracles, gated API ' +
+      'endpoints) and settle the sub-dollar payment automatically from the ' +
+      "user's pre-authorized agent allowance. Pick the matching `resource` " +
+      'capability from the enum — you do NOT type a URL; the server resolves it. ' +
+      'Returns the resource body plus a settlement summary ({ paid, amount_usdc, ' +
+      'rail, tx_hash }). If the price exceeds the remaining allowance the result ' +
+      'is paid:false with over_budget:true — surface the top-up message, never ' +
+      'retry blindly.',
+    // The `resource` enum is injected at build time from the live catalog
+    // (`enabledResourceIds()`), so the model can only choose a configured
+    // capability — it can never invent a URL (CI-2). This deletes the old
+    // server-side URL pin-hack at the schema level.
     inputSchema: {
       type: 'object',
       properties: {
-        url: {
+        resource: {
           type: 'string',
-          description: 'Full HTTPS URL of the protected resource to fetch.',
+          description:
+            'Which paid resource to fetch. Pick the matching capability id.',
         },
-        method: {
-          type: 'string',
-          description: 'HTTP method for the resource. Defaults to GET.',
+        params: {
+          type: 'object',
+          additionalProperties: true,
+          description:
+            'Domain args for the resource, e.g. { protocol: "aave-v3" }.',
         },
         maxSpendUsdc: {
           type: 'number',
@@ -182,7 +189,7 @@ export const WALLET_WRITE_TOOLS: Record<string, ToolMeta> = composeAgentTools('w
             "the user's on-chain allowance — only ever narrows it, never widens.",
         },
       },
-      required: ['url'],
+      required: ['resource'],
       additionalProperties: false,
     },
   },

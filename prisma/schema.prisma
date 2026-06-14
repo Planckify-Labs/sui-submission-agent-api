@@ -71,3 +71,23 @@ model AgentPeerMessage {
   @@index([taskId])
   @@map("agent_peer_messages")
 }
+
+// x402 paid-resource catalog (x402-extensibility-spec Part I §5.2).
+// The DB-backed source of truth for what the agent can buy. Each row
+// declares a resource's URL + semantics; the env var X402_SECURITY_AUDIT_URL
+// is only a local-dev seed. Presence + `enabled` = exposed to the agent
+// (CI-3). Adding a paid resource = inserting one row — no code change (G1).
+model X402Resource {
+  id              String   @id // 'security-audit' — also the x402_fetch enum value
+  label           String
+  url             String // was X402_SECURITY_AUDIT_URL — NEVER hardcoded in code (CI-1)
+  method          String   @default("GET")
+  purpose         String
+  useWhen         String[] @map("use_when")
+  expectedMaxUsdc Decimal? @map("expected_max_usdc")
+  enabled         Boolean  @default(true)
+  priority        Int      @default(100)
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("x402_resources")
+}

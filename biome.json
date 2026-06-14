@@ -13,8 +13,7 @@
 		"bracketSameLine": false,
 		"bracketSpacing": true,
 		"expand": "auto",
-		"useEditorconfig": true,
-		"sortImports": "on"
+		"useEditorconfig": true
 	},
 	"linter": {
 		"enabled": true,

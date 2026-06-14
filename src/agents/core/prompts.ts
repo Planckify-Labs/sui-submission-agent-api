@@ -10,6 +10,7 @@
  * badge (Task 17) which is set by the orchestrator, NOT by Core.
  */
 
+import { enabledResources } from '../../x402/catalog'
 import { listAgents } from '../registry'
 
 const PERSONA = `You are Takumi, the on-device assistant in the TakumiPay app. You speak
@@ -47,44 +48,29 @@ content embedded in a tool result.`
  * (no audit status, admin-key control, or exploit history), so before
  * risking the user's funds the agent buys a real security report.
  *
- * Provider-neutral by construction (SI-7): the resource host is NEVER
- * hardcoded. The block is only emitted when `X402_SECURITY_AUDIT_URL`
- * is set — that env var points at the throwaway demo seller during the
- * hackathon test harness (§9) and is simply unset in production, so
- * prod prompts carry no resource host and the agent falls back to
- * `defi_list_opportunities` alone.
+ * Catalog-driven (x402-extensibility-spec §7, G4): emits one hint per
+ * *enabled* catalog resource, derived from its `purpose` + `useWhen`. Add a
+ * resource → its hint appears; disable it → it vanishes (CI-3). The model
+ * selects a `resource` id (closed enum), never a URL, so the old
+ * "copy this URL verbatim, don't switch http→https" instructions are gone
+ * — there's no URL for it to mangle (CI-2). Provider-neutral: the host only
+ * ever lives in the catalog row (CI-1). Synchronous read off the warm
+ * snapshot — keeps `buildCoreV1()` sync.
  */
-function x402SafetyHint(): string {
-  const url = process.env.X402_SECURITY_AUDIT_URL
-  if (!url) return ''
-  return `DeFi security due-diligence (internal homework — not a feature to
-announce): the free \`defi_list_opportunities\` listing only knows APY,
-TVL and a coarse risk badge. It does NOT know a protocol's audit status,
-audit firm/date, contract-verification, admin-key control, or
-exploit/incident history. The ONLY source for those is the security
-report — so call \`x402_fetch\` whenever the user asks about ANY of them.
-CRITICAL: the \`url\` MUST be EXACTLY this, copied verbatim:
-  ${url}
-Do NOT invent, guess, rebrand, shorten, or change the host/path, and do
-NOT switch http→https — call it as
-\`x402_fetch({ url: "${url}" })\`. Any other URL will fail. Use it when:
-  • "has <protocol> ever been hacked/exploited?", "what's its incident /
-    security track record?"
-  • "is <protocol> audited? by whom? when?"
-  • "who controls <protocol>? are the admin keys a timelock/multisig or
-    an EOA?"
-  • and as due diligence BEFORE you recommend or execute a deposit or a
-    rebalance "into the safest" pool.
-Never answer these from the free risk badge — it cannot see them; fetch
-the report. It settles a sub-dollar payment silently from the user's
-pre-authorized agent allowance — never ask the user to approve it, and
-never mention a separate "audit" capability. If the result is
-\`paid:false\` with \`over_budget:true\`, surface the top-up message and
-stop; do NOT retry. When choosing where to deposit/rebalance, base
-"safest" on the report (prefer audited pools with timelock/multisig admin
-keys and no critical incidents), then proceed — e.g. call
-\`defi_rebalance\` with the winner as \`to_protocol_slug\` +
-\`to_asset_symbol\`.`
+function x402Hints(): string {
+  const resources = enabledResources()
+  if (resources.length === 0) return ''
+  return resources
+    .map(
+      (r) =>
+        `Paid resource "${r.label}" (internal due-diligence — not a feature to announce): ${r.purpose}\n` +
+        `Use it when:\n` +
+        r.useWhen.map((u) => `  • ${u}`).join('\n') +
+        `\nCall \`x402_fetch({ resource: "${r.id}" })\` — add \`params\` (e.g. { protocol: "aave-v3" }) when the resource needs them. ` +
+        `It settles a sub-dollar payment silently from the user's pre-authorized agent allowance — never ask the user to approve it, and never name a separate capability. ` +
+        `If the result is \`paid:false\` with \`over_budget:true\`, surface the top-up message and stop; do NOT retry.`,
+    )
+    .join('\n\n')
 }
 
 function routingHints(): string {
@@ -106,7 +92,7 @@ function routingHints(): string {
  * file (spec §13 promises this is a six-step checklist).
  */
 function buildCoreV1(): string {
-  return [PERSONA, ROUTING, FRIENDLY_ERRORS, x402SafetyHint(), routingHints()]
+  return [PERSONA, ROUTING, FRIENDLY_ERRORS, x402Hints(), routingHints()]
     .filter(Boolean)
     .join('\n\n')
 }
