@@ -61,7 +61,7 @@ describe('TOOL_REGISTRY', () => {
       'utility',
     ];
     const validExecutors: ToolExecutor[] = ['server', 'mobile'];
-    const validCapabilities: ToolCapability[] = ['read', 'simulate', 'write'];
+    const validCapabilities: ToolCapability[] = ['read', 'write'];
 
     for (const meta of Object.values(TOOL_REGISTRY)) {
       expect(validCategories).toContain(meta.category);

@@ -3,8 +3,8 @@
  * `defi-strategies-spec.md` §11.
  *
  * Eight tools ship in v1:
- *   reads     — defi_list_opportunities, defi_list_positions, defi_get_config
- *   simulate  — defi_simulate_deposit
+ *   reads     — defi_list_opportunities, defi_list_positions, defi_get_config,
+ *               defi_simulate_deposit (dry-run, read-only)
  *   writes    — defi_deposit, defi_withdraw, defi_claim, defi_rebalance,
  *               defi_cross_chain_deposit
  *

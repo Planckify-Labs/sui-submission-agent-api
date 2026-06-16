@@ -11,10 +11,10 @@
  * each field defensively and falls back to `"?"` on missing optionals so
  * the approval sheet never crashes on a malformed payload.
  *
- * Coverage: every tool in `TOOL_REGISTRY` with `capability: "simulate"` or
- * `capability: "write"` has an explicit case. Reads do not need summaries
- * (they execute silently). The default branch returns `Execute ${name}` so
- * any unknown tool still renders something safe.
+ * Coverage: every tool in `TOOL_REGISTRY` with `capability: "write"` has an
+ * explicit case. Reads do not need summaries (they execute silently), though
+ * a few keep friendly labels below. The default branch returns
+ * `Execute ${name}` so any unknown tool still renders something safe.
  */
 
 import { formatEther } from 'viem';
@@ -92,7 +92,7 @@ export function buildHumanSummary(
   input: Record<string, unknown>,
 ): string {
   switch (name) {
-    // ─── simulate ──────────────────────────────────────────────────────────
+    // ─── read (labelled) ────────────────────────────────────────────────────
     // estimate_gas: the agent passes chain_id, to, and value_wei. The
     // human-readable gas estimate is not known until the tool executes,
     // so we show a generic "Estimating gas" label.
@@ -233,7 +233,7 @@ export function buildHumanSummary(
       return `Claim rewards on position ${position} and redeposit`;
     }
 
-    // ─── defi / simulate ───────────────────────────────────────────────────
+    // ─── defi / read (dry-run) ──────────────────────────────────────────────
     case 'defi_simulate_deposit': {
       const amount = str(input, 'amount_raw');
       const asset = str(input, 'asset_symbol');
@@ -252,7 +252,7 @@ export function buildHumanSummary(
         : 'Buy a paid resource';
     }
 
-    // ─── points / simulate ─────────────────────────────────────────────────
+    // ─── points / read (interactive login) ──────────────────────────────────
     // request_authentication: shows login UI on the mobile. No tool inputs.
     case 'request_authentication':
       return 'Log in to TakumiPay';

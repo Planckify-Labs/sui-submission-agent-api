@@ -198,13 +198,9 @@ export const WALLET_READ_TOOLS: Record<string, ToolMeta> = composeAgentTools('wa
   },
 
   // ─── Mobile / blockchain_read — read-only RPC call ─────────────────────────
-  // Capability is `read` (not `simulate`) so the mobile dispatcher routes
-  // it to the `silent` UX treatment. Marking it `simulate` would map to
-  // the `preview` treatment, which requires a registered StructuredUI
-  // card — none exists for this tool, so the preview would render
-  // invisible and the agent loop would hang on `awaitMobileResult` until
-  // the 5-minute timeout. `estimate_gas` is a pure RPC call, no signature
-  // or chain mutation, so `read` is correct.
+  // Capability is `read` so the mobile dispatcher routes it to the `silent`
+  // UX treatment. `estimate_gas` is a pure RPC call — no signature, no chain
+  // mutation — so `read` is the faithful classification.
   estimate_gas: {
     name: 'estimate_gas',
     category: 'blockchain_read',

@@ -1,5 +1,5 @@
 export type ToolExecutor = 'server' | 'mobile';
-export type ToolCapability = 'read' | 'simulate' | 'write';
+export type ToolCapability = 'read' | 'write';
 export type ToolCategory =
   | 'blockchain_read'
   | 'blockchain_write'

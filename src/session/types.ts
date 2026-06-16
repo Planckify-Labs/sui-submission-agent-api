@@ -50,7 +50,7 @@ export interface WalletContext {
 /**
  * Tool capability classification — factual, not UX. See §8.3.
  */
-export type ToolCapability = 'read' | 'simulate' | 'write'
+export type ToolCapability = 'read' | 'write'
 
 /**
  * Logical grouping of tools used by mobile to apply policy. See §8.3.

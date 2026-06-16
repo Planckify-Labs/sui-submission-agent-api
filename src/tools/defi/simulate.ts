@@ -30,12 +30,10 @@ const DEFI_SIMULATE_DEPOSIT: ToolMeta = {
   name: 'defi_simulate_deposit',
   category: 'utility',
   executor: 'mobile',
-  // Read-only dry run (no signature, no chain mutation). Marking it
-  // `simulate` routes it to the mobile's `preview` UX treatment, which
-  // requires a registered StructuredUI card to render the confirm/cancel
-  // affordance. No card is registered for this tool, so the treatment
-  // produced an invisible preview and the agent loop hung on
-  // `awaitMobileResult` until the 5-minute timeout. Treat it as a read.
+  // Read-only dry run: no signature, no chain mutation — it only builds
+  // calldata and runs an `estimate_gas` probe. Classified `read` so the
+  // mobile routes it to the `silent` UX treatment and the agent loop never
+  // blocks on an approval affordance.
   capability: 'read',
   description:
     'Dry-run a DeFi deposit. Returns gas estimate, approval requirement, APY drift vs the backend cache, and the adapter\'s static safety score. Always call this before `defi_deposit` for amounts above 100 USD or when the user asks "how much gas will this cost?".',

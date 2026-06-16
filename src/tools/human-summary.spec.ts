@@ -97,14 +97,14 @@ describe('buildHumanSummary', () => {
     ).toBe('Send 0.5 ETH to ?');
   });
 
-  it('covers every simulate/write tool in TOOL_REGISTRY with a non-default case', () => {
-    // Regression guard: if someone adds a new simulate/write tool without
+  it('covers every write tool in TOOL_REGISTRY with a non-default case', () => {
+    // Regression guard: if someone adds a new write tool without
     // updating buildHumanSummary, this test fails. We detect a missed case
     // by checking that the output is NOT the default "Execute <name>" for an
     // empty input — every covered case starts with a different literal.
     const missing: string[] = [];
     for (const meta of Object.values(TOOL_REGISTRY)) {
-      if (meta.capability !== 'simulate' && meta.capability !== 'write') {
+      if (meta.capability !== 'write') {
         continue;
       }
       const out = buildHumanSummary(meta.name, {});
