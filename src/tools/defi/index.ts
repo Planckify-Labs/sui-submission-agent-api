@@ -18,6 +18,7 @@
 
 import type { ToolMeta } from '../internal/types'
 import { DEFI_CLAIM_TOOLS } from './claim'
+import { DEFI_INTENT_TOOLS } from './intent'
 import { DEFI_OPPORTUNITY_TOOLS } from './opportunities'
 import { DEFI_PROPOSE_TOOLS } from './propose'
 import { DEFI_CONFIG_TOOLS } from './reads-extra'
@@ -28,6 +29,7 @@ export { DEFI_PROPOSE_TOOLS } from './propose'
 export { DEFI_CONFIG_TOOLS } from './reads-extra'
 export { DEFI_SIMULATE_TOOLS } from './simulate'
 export { DEFI_CLAIM_TOOLS } from './claim'
+export { DEFI_INTENT_TOOLS } from './intent'
 
 export const DEFI_TOOLS: Record<string, ToolMeta> = {
   ...DEFI_OPPORTUNITY_TOOLS,
@@ -35,4 +37,5 @@ export const DEFI_TOOLS: Record<string, ToolMeta> = {
   ...DEFI_SIMULATE_TOOLS,
   ...DEFI_PROPOSE_TOOLS,
   ...DEFI_CLAIM_TOOLS,
+  ...DEFI_INTENT_TOOLS,
 }

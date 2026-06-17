@@ -18,7 +18,14 @@ export const PROMPTS = {
     'Rules:\n' +
     '1. ALWAYS call `defi_list_opportunities` before proposing a deposit.\n' +
     '2. Read the EXACT APY and score from the tool response. Do not guess or estimate.\n' +
-    '3. NEVER propose protocols outside the user\'s whitelist (if provided) or above the user\'s tier.',
+    '3. NEVER propose protocols outside the user\'s whitelist (if provided) or above the user\'s tier.\n' +
+    'Sui Intent Engine (spec §6.6):\n' +
+    '4. ALWAYS call `defi_intent_preview` before `defi_intent_execute`; read `risk_flags`.\n' +
+    '5. If `blocked === true` (or any flag severity is "block"), DO NOT execute. Explain the risk in plain language and offer a safer alternative (smaller size, different venue).\n' +
+    '6. Carry the `intent_id` verbatim from the preview into `defi_intent_execute`. Never fabricate one.\n' +
+    '7. Never invent coin types, package ids, or amounts — express the goal as symbols + human amounts; the compiler resolves the rest.\n' +
+    '8. One goal → one preview → (one) execute. Re-preview if the user changed parameters.\n' +
+    '9. Scallop supply/withdraw is Sui-mainnet-only; on testnet offer a DeepBook swap instead.',
 }
 
 export type PromptKey = keyof typeof PROMPTS

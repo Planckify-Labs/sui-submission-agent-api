@@ -523,3 +523,42 @@ export type RequestAuthenticationResult =
       success: false;
       error: 'user_cancelled' | 'network_error' | 'wallet_mismatch' | string;
     };
+
+/**
+ * `defi_intent_preview` — compiled plan + guardian verdict (read; never
+ * signs). Sui Intent Engine, spec §6.5. Every number the guardian surfaces
+ * is pre-formatted into a `risk_flags[].detail` string; nothing here is a
+ * bigint (§8.5).
+ */
+export type DefiIntentPreviewResult = {
+  /** Opaque; pass to defi_intent_execute. */
+  intent_id: string;
+  /** Plain-language, hand-built (no raw data). */
+  human_summary: string;
+  /** Decimal string, when the venue exposes one (supply). */
+  apy?: string;
+  /** Decoded PTB commands — the "what it does on-chain" list. */
+  decoded: Array<{
+    kind: string;
+    module?: string;
+    function?: string;
+  }>;
+  risk_flags: Array<{
+    code: 'slippage.high' | 'oracle.stale' | 'concentration.high';
+    severity: 'info' | 'warn' | 'block';
+    title: string;
+    detail: string;
+  }>;
+  /** true ⇒ the agent must NOT call defi_intent_execute. */
+  blocked: boolean;
+};
+
+/**
+ * `defi_intent_execute` — terminal. `digest` is base58, NOT tx_hash
+ * (spec §6.5).
+ */
+export type DefiIntentExecuteResult = {
+  digest: string;
+  /** "testnet" | "mainnet" | "devnet". */
+  network: string;
+};

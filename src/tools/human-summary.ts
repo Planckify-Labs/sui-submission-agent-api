@@ -233,6 +233,17 @@ export function buildHumanSummary(
       return `Claim rewards on position ${position} and redeposit`;
     }
 
+    // ─── defi / Sui Intent Engine (spec §6.2) ───────────────────────────────
+    // defi_intent_execute (write): the approval sheet shows this. Generic +
+    // approval-safe — the server has only the intent_id at call time, not
+    // the compiled APY; the rich copy comes from the mobile result.
+    case 'defi_intent_execute':
+      return 'Execute your prepared Sui transaction';
+    // defi_intent_preview (read): runs silently, but the parity-friendly
+    // label keeps every tool mapping to a non-empty summary.
+    case 'defi_intent_preview':
+      return 'Prepare a Sui transaction from your goal';
+
     // ─── defi / read (dry-run) ──────────────────────────────────────────────
     case 'defi_simulate_deposit': {
       const amount = str(input, 'amount_raw');
