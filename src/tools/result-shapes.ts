@@ -544,13 +544,27 @@ export type DefiIntentPreviewResult = {
     function?: string;
   }>;
   risk_flags: Array<{
-    code: 'slippage.high' | 'oracle.stale' | 'concentration.high';
+    // 'effect.mismatch' is computed from the dry-run's real balance changes
+    // (dryRunTransactionBlock effects), not the venue quote — the why-Sui
+    // pre-sign effect inspection.
+    code:
+      | 'slippage.high'
+      | 'oracle.stale'
+      | 'concentration.high'
+      | 'effect.mismatch';
     severity: 'info' | 'warn' | 'block';
     title: string;
     detail: string;
   }>;
   /** true ⇒ the agent must NOT call defi_intent_execute. */
   blocked: boolean;
+  /**
+   * Plain-language list of the LIVE on-chain reads the guardian performed this
+   * run (e.g. "Simulated this exact transaction on Sui", "Checked your live
+   * balance") — proof the guardian inspects real state, not canned warnings.
+   * The agent may narrate these.
+   */
+  inspected?: string[];
 };
 
 /**

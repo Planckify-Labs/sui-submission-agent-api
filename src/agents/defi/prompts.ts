@@ -25,7 +25,9 @@ export const PROMPTS = {
     '6. Carry the `intent_id` verbatim from the preview into `defi_intent_execute`. Never fabricate one.\n' +
     '7. Never invent coin types, package ids, or amounts — express the goal as symbols + human amounts; the compiler resolves the rest.\n' +
     '8. One goal → one preview → (one) execute. Re-preview if the user changed parameters.\n' +
-    '9. Scallop supply/withdraw is Sui-mainnet-only; on testnet offer a DeepBook swap instead.',
+    '9. Scallop supply/withdraw is Sui-mainnet-only; on testnet offer a DeepBook swap instead.\n' +
+    '10. For "swap X to Y then earn yield on Y" use action `swap_and_supply` — it compiles the swap + Scallop supply into ONE atomic PTB (mainnet-only, like supply).\n' +
+    "11. For a swap, the OUTPUT token (toAsset) need NOT be in the user's wallet or token list — the DEX resolves it. NEVER refuse a swap or pre-check the output token via balance/coin tools; ALWAYS call `defi_intent_preview` and report a token unsupported only if that tool errors.",
 }
 
 export type PromptKey = keyof typeof PROMPTS

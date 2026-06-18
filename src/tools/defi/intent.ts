@@ -30,15 +30,25 @@ const DEFI_INTENT_PREVIEW: ToolMeta = {
     'severity "block" (or blocked is true), DO NOT execute — explain the ' +
     'risk and offer to adjust. Express the goal as symbols + human amounts ' +
     '(e.g. swap 5 SUI to USDC); never invent coin types, package ids, or ' +
-    'raw amounts. supply/withdraw (Scallop) is Sui-mainnet-only; on testnet ' +
-    'offer a swap (DeepBook) instead.',
+    'raw amounts. CRITICAL for swaps: the OUTPUT token (toAsset) does NOT need ' +
+    "to be in the user's wallet, balances, or token list — the DEX defines its " +
+    'pool\'s coins and THIS tool resolves it. NEVER refuse a swap, and never ' +
+    'pre-check the output token with get_wallet_sui_balance/get_wallet_sui_coins ' +
+    '— ALWAYS call this tool for a swap goal and only report a token as ' +
+    'unsupported if THIS tool returns an error (e.g. unsupported_pair / ' +
+    'no_swap_route). supply/withdraw (Scallop) is Sui-mainnet-only; on testnet ' +
+    'offer a swap (DeepBook) instead. Use action "swap_and_supply" for a ' +
+    'one-step "swap X to Y then earn yield on Y" goal — it compiles the swap ' +
+    'and the Scallop supply into ONE atomic PTB (mainnet-only, like supply).',
   inputSchema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['supply', 'withdraw', 'swap'],
-        description: 'The goal type.',
+        enum: ['supply', 'withdraw', 'swap', 'swap_and_supply'],
+        description:
+          'The goal type. "swap_and_supply" zaps fromAsset → toAsset and ' +
+          'supplies toAsset to Scallop in one atomic PTB (mainnet-only).',
       },
       venue: {
         type: 'string',
