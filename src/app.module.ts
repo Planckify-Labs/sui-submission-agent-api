@@ -4,6 +4,7 @@ import { AppController } from './app.controller'
 import { AppService } from './app.service'
 import { ChatController } from './chat.controller'
 import { ChatService } from './chat.service'
+import { AgentController } from './agents/agent.controller'
 import { ApiKeyGuard } from './guards/api-key.guard'
 import { MCPClientService } from './mcp-client.service'
 import { SessionModule } from './session'
@@ -23,7 +24,12 @@ import { X402CatalogService } from './x402/x402-catalog.service'
     PrismaModule,
     HistoryModule,
   ],
-  controllers: [AppController, ChatController, TranscribeController],
+  controllers: [
+    AppController,
+    ChatController,
+    AgentController,
+    TranscribeController,
+  ],
   providers: [
     AppService,
     ChatService,

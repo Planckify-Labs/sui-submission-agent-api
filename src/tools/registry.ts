@@ -25,9 +25,13 @@ export type {
 } from './internal/types';
 
 import type { ToolMeta } from './internal/types';
-import { CORE_TOOLS } from './core';
-import { DEFI_TOOLS } from './defi';
-import { WALLET_TOOLS } from './wallet';
+// Tool DEFINITIONS are co-located with the agent that owns them
+// (src/agents/<id>/tools). This module only re-assembles the union into
+// `TOOL_REGISTRY` — the exported names are unchanged, so the mobile
+// registry-parity check is unaffected.
+import { CORE_TOOLS } from '../agents/core/tools';
+import { DEFI_TOOLS } from '../agents/defi/tools';
+import { WALLET_TOOLS } from '../agents/wallet/tools';
 
 /**
  * Tool result shapes are **normative as of protocol v1.1** — see
@@ -35,10 +39,10 @@ import { WALLET_TOOLS } from './wallet';
  * `protocol-updates/protocol_v1.1.md` §6 / §8. Changes to any tool's result
  * shape require a protocol version bump.
  *
- * Composition layout (spec §7.1):
- *  - `tools/core/`   — orchestration affordances only (§4.1)
- *  - `tools/wallet/` — every existing on-device executor
- *  - `tools/defi/`   — v1 stubs matching `defi-strategies-spec.md` §11
+ * Composition layout (co-located with each owning agent):
+ *  - `agents/core/tools/`   — orchestration affordances only (§4.1)
+ *  - `agents/wallet/tools/` — every on-device executor
+ *  - `agents/defi/tools/`   — DeFi + Sui Intent Engine tools
  */
 export const TOOL_REGISTRY: Record<string, ToolMeta> = {
   ...CORE_TOOLS,

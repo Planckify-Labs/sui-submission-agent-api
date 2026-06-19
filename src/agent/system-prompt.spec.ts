@@ -75,6 +75,26 @@ describe('AGENT_SYSTEM_PROMPT', () => {
     );
     expect(AGENT_SYSTEM_PROMPT).toContain('If a service is unavailable');
   });
+
+  // Regression guard for the "agent claimed it swapped but never called
+  // defi_intent_execute, no approval sheet, no funds moved" incident.
+  it('describes the two-step preview→execute swap flow', () => {
+    expect(AGENT_SYSTEM_PROMPT).toContain('defi_intent_preview');
+    expect(AGENT_SYSTEM_PROMPT).toContain('defi_intent_execute');
+    // The preview prepares only — signs nothing / moves no funds.
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/signs?\s+NOTHING/i);
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/moves?\s+NO funds/i);
+    // Execute is mandatory to actually perform the swap.
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/MUST call .?defi_intent_execute/i);
+  });
+
+  it('forbids claiming success without a write-tool result', () => {
+    expect(AGENT_SYSTEM_PROMPT).toContain('On-chain execution honesty');
+    for (const word of ['executed', 'broadcast', 'successful']) {
+      expect(AGENT_SYSTEM_PROMPT.toLowerCase()).toContain(word);
+    }
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/digest|tx_hash/i);
+  });
 });
 
 describe('buildWalletContextPrompt', () => {

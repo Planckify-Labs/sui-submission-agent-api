@@ -26,7 +26,19 @@ import {
 } from './tools/registry'
 import { enabledResourceIds, resolveResourceRequest } from './x402/catalog'
 import { buildHumanSummary } from './tools/human-summary'
-import { buildSystemPrompt } from './agent/system-prompt'
+import { buildSystemPrompt, buildWalletContextPrompt } from './agent/system-prompt'
+import { orchestrate } from './agents/orchestrator'
+import {
+  decideCoreRoute,
+  type CoreDecision,
+  type OrchestratorEngine,
+} from './agents/engine'
+import {
+  getAgentConfig,
+  listSpecialistIds,
+  type AgentRuntimeConfig,
+} from './agents/agentConfig'
+import { resolveModel } from './agents/models'
 import type {
   MobileResponse,
   Session,
@@ -66,6 +78,29 @@ export type ModelRunner = (params: {
   tools: ToolSet
   system: string
 }) => StreamTextCall
+
+/**
+ * Per-turn config for `runAgentTurn`. Lets the single-agent fallback, the
+ * orchestrator's specialist turns, and the per-agent endpoints share one
+ * loop implementation while each supplies its own prompt / tools / model.
+ */
+export interface AgentTurnConfig {
+  /** System prompt for this turn (wallet-context header already prepended). */
+  system: string
+  /** The LLM-facing tool set — ONLY the tools this agent is allowed to call. */
+  llmTools: ToolSet
+  /** The resolved model this agent runs on. */
+  model: LanguageModel
+}
+
+/** Pull the `question` string out of a `core_clarify` tool input. */
+function readClarifyQuestion(input: unknown): string | undefined {
+  if (input && typeof input === 'object' && 'question' in input) {
+    const q = (input as { question?: unknown }).question
+    if (typeof q === 'string' && q.trim().length > 0) return q
+  }
+  return undefined
+}
 
 /**
  * Hard cap on tokens a single model step may emit. Without it, a model that
@@ -136,7 +171,7 @@ export interface SseEvent {
  *  4. Preserve the Task 04 reconnect behaviour via `buildReconnectResponse`.
  */
 @Injectable()
-export class ChatService {
+export class ChatService implements OrchestratorEngine {
   private readonly logger = new Logger(ChatService.name)
   private cachedModel: LanguageModel | null = null
   private modelRunner: ModelRunner = DEFAULT_MODEL_RUNNER
@@ -325,33 +360,56 @@ export class ChatService {
    * without standing up a Fastify adapter.
    */
   async *agentLoop(session: Session, priorMessageCount?: number): AsyncGenerator<AgentEvent> {
-    const walletCtx = session.wallet_context
-    const systemPrompt = buildSystemPrompt(walletCtx)
-    // Capture the message count at the start of this turn for persistence (task 07)
-    const turnStartMessageCount = priorMessageCount ?? session.messages.length
-    // Seed the incremental-persist watermark (task 11 / S1). Subsequent
-    // flushes only write `messages.slice(lastPersistedIndex)` so duplicate
-    // saves at the end of the turn are no-ops.
-    if (session.lastPersistedIndex === undefined) {
-      session.lastPersistedIndex = turnStartMessageCount
+    // Single-agent fallback (AGENT_ORCHESTRATOR=single). Runs ONE model with
+    // the full tool set + the legacy system prompt — preserved for instant
+    // rollback from the multi-agent orchestrator.
+    const mcpTools = await this.getMcpTools()
+    this.prepareTurnWatermark(session, priorMessageCount)
+    const cfg: AgentTurnConfig = {
+      system: buildSystemPrompt(session.wallet_context),
+      llmTools: buildAllTools(TOOL_REGISTRY, mcpTools),
+      model: this.getModel(),
     }
+    yield* this.runAgentTurn(session, cfg, mcpTools)
+  }
 
-    // Fetch MCP tools once per turn. After protocol v1.1 §11 the MCP
-    // subprocess is a bare diagnostic template (`owner`, `calculator`)
-    // and exposes no agent-callable handlers — `mcpTools` is normally
-    // empty. Every tool call goes through the central registry and is
-    // routed to the mobile executor.
-    let mcpTools: ToolSet = {}
+  /** Fetch MCP server tools once per turn (normally empty — see §11). */
+  private async getMcpTools(): Promise<ToolSet> {
     try {
-      mcpTools = (await this.mcpClientService.getTools()) as ToolSet
+      return (await this.mcpClientService.getTools()) as ToolSet
     } catch (err) {
       this.logger.warn(
         `MCP getTools() failed, continuing without server tools: ${(err as Error).message}`,
       )
+      return {}
     }
+  }
 
-    const allTools = buildAllTools(TOOL_REGISTRY, mcpTools)
+  /** Seed the incremental-persist watermark for this turn (task 11 / S1). */
+  private prepareTurnWatermark(
+    session: Session,
+    priorMessageCount?: number,
+  ): void {
+    const turnStartMessageCount = priorMessageCount ?? session.messages.length
+    if (session.lastPersistedIndex === undefined) {
+      session.lastPersistedIndex = turnStartMessageCount
+    }
+  }
 
+  /**
+   * Run one agent's multi-step turn: stream text + tool calls, execute each
+   * (server via MCP, mobile via the tool_pending round-trip), feed results
+   * back, repeat until the model stops calling tools. Parameterized by `cfg`
+   * (system prompt + LLM tool set + model) so the single-agent fallback, the
+   * orchestrator's specialist turns, AND the per-agent endpoints all share
+   * ONE implementation. Yields the same AgentEvent protocol the mobile app
+   * already consumes.
+   */
+  async *runAgentTurn(
+    session: Session,
+    cfg: AgentTurnConfig,
+    mcpTools: ToolSet,
+  ): AsyncGenerator<AgentEvent> {
     session.state = 'streaming'
 
     // Hard cap on loop iterations — defense against a pathological model
@@ -376,7 +434,7 @@ export class ChatService {
       let call: StreamTextCall
       try {
         call = this.modelRunner({
-          model: this.getModel(),
+          model: cfg.model,
           // Two defensive passes (both pure):
           //   1. `sanitizeOrphanedToolCalls` — inject `interrupted`
           //      results for assistant `tool_calls` that lack a reply.
@@ -389,8 +447,8 @@ export class ChatService {
               sanitizeOrphanedToolCalls(session.messages),
             ),
           ),
-          tools: allTools,
-          system: systemPrompt,
+          tools: cfg.llmTools,
+          system: cfg.system,
         })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -499,19 +557,7 @@ export class ChatService {
         // the incremental path from task 11.
         await this.persistTurnSoFar(session)
 
-        yield {
-          event: 'done',
-          data: {
-            session_id: session.id,
-            usage: session.usage,
-            ...(session.conversationId !== undefined
-              ? { conversation_id: session.conversationId }
-              : {}),
-            ...(session.conversationTitle !== undefined
-              ? { conversation_title: session.conversationTitle }
-              : {}),
-          },
-        }
+        yield this.emitDone(session)
         return
       }
 
@@ -667,6 +713,188 @@ export class ChatService {
       data: {
         code: 'max_iterations',
         message: 'Agent exceeded the maximum number of tool-call iterations.',
+        retryable: true,
+      },
+    }
+  }
+
+  // ── Multi-agent orchestration (AGENT_ORCHESTRATOR=multi, default) ────────
+  // ChatService implements `OrchestratorEngine`; `orchestrate()` drives the
+  // Core→specialist flow. All three methods reuse `runAgentTurn` + the same
+  // helpers, so the wire protocol stays identical to the single-agent path.
+
+  /** Build a specialist/Core system prompt: wallet header + agent rules + brief. */
+  private buildAgentSystem(
+    session: Session,
+    config: AgentRuntimeConfig,
+    brief?: string,
+  ): string {
+    const header = buildWalletContextPrompt(session.wallet_context)
+    const briefNote = brief
+      ? `\n\n## This turn\nThe user's request has been routed to you: ${brief}`
+      : ''
+    return `${header}\n\n${config.buildSystemPrompt()}${briefNote}`
+  }
+
+  /** Terminal `done` event (conversation meta + usage). */
+  emitDone(session: Session): AgentEvent {
+    return {
+      event: 'done',
+      data: {
+        session_id: session.id,
+        usage: session.usage,
+        ...(session.conversationId !== undefined
+          ? { conversation_id: session.conversationId }
+          : {}),
+        ...(session.conversationTitle !== undefined
+          ? { conversation_title: session.conversationTitle }
+          : {}),
+      },
+    }
+  }
+
+  /**
+   * Core's router model call. Streams any user-facing text Core produces and
+   * RETURNS the routing decision. Core's `core_*` tool calls are orchestration
+   * signals — never executed against mobile/MCP, never persisted.
+   */
+  async *runCoreRouter(
+    session: Session,
+  ): AsyncGenerator<AgentEvent, CoreDecision> {
+    this.prepareTurnWatermark(session)
+    session.state = 'streaming'
+    const coreCfg = getAgentConfig('core')
+    if (!coreCfg) {
+      this.logger.error('Core agent config missing — cannot route.')
+      return { kind: 'answered' }
+    }
+
+    let model: LanguageModel
+    try {
+      model = resolveModel(coreCfg.model)
+    } catch (err) {
+      this.logger.error(`resolveModel(core) failed: ${String(err)}`)
+      yield this.modelErrorEvent()
+      return { kind: 'answered' }
+    }
+
+    yield { event: 'status', data: { message: 'Thinking…' } }
+
+    let call: StreamTextCall
+    try {
+      call = this.modelRunner({
+        model,
+        messages: this.stripDisplayForLLM(
+          dropOrphanedToolResults(sanitizeOrphanedToolCalls(session.messages)),
+        ),
+        tools: buildSchemaToolSet(coreCfg.tools),
+        system: this.buildAgentSystem(session, coreCfg),
+      })
+    } catch (err) {
+      this.logger.error(`Core streamText failed: ${String(err)}`)
+      yield this.modelErrorEvent()
+      return { kind: 'answered' }
+    }
+
+    let text = ''
+    try {
+      for await (const chunk of call.textStream) {
+        if (text.length < MAX_ASSISTANT_CHARS) {
+          text += chunk
+          yield { event: 'text_delta', data: { content: chunk } }
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Core text stream failed: ${String(err)}`)
+      yield this.modelErrorEvent()
+      return { kind: 'answered' }
+    }
+
+    let toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }>
+    try {
+      toolCalls = await call.toolCalls
+    } catch (err) {
+      this.logger.error(`Core toolCalls rejected: ${String(err)}`)
+      yield this.modelErrorEvent()
+      return { kind: 'answered' }
+    }
+
+    const decision = decideCoreRoute(toolCalls, listSpecialistIds())
+
+    if (decision.kind === 'route') {
+      // Commit any prose Core streamed (rare on a route) but NOT the handoff
+      // tool-call — it's an internal signal, not part of the conversation.
+      if (text.length > 0) {
+        session.messages.push({
+          role: 'assistant',
+          content: [{ type: 'text', text }],
+        })
+        await this.persistTurnSoFar(session)
+      }
+      return decision
+    }
+
+    // Answered: surface a `core_clarify` question if Core emitted one without
+    // streaming prose. Otherwise commit whatever text it produced.
+    if (text.length === 0) {
+      const clarify = toolCalls.find((tc) => tc.toolName === 'core_clarify')
+      const question = clarify ? readClarifyQuestion(clarify.input) : undefined
+      const reply = question ?? 'How can I help?'
+      text = reply
+      yield { event: 'text_delta', data: { content: reply } }
+    }
+    session.messages.push({
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+    })
+    session.state = 'idle'
+    await this.persistTurnSoFar(session)
+    return { kind: 'answered' }
+  }
+
+  /**
+   * Run one specialist's full turn via the shared engine — its prompt + ONLY
+   * its tools + its configured model. Emits the terminal `done` via
+   * `runAgentTurn`.
+   */
+  async *runSpecialistTurn(
+    session: Session,
+    config: AgentRuntimeConfig,
+    brief: string,
+  ): AsyncGenerator<AgentEvent> {
+    let model: LanguageModel
+    try {
+      model = resolveModel(config.model)
+    } catch (err) {
+      this.logger.error(`resolveModel(${config.id}) failed: ${String(err)}`)
+      yield this.modelErrorEvent()
+      return
+    }
+    const mcpTools = await this.getMcpTools()
+    const cfg: AgentTurnConfig = {
+      system: this.buildAgentSystem(session, config, brief),
+      llmTools: buildAllTools(config.tools, mcpTools),
+      model,
+    }
+    yield* this.runAgentTurn(session, cfg, mcpTools)
+  }
+
+  /** Multi-agent entry point: Core routes → specialist runs. */
+  async *orchestratedLoop(
+    session: Session,
+    priorMessageCount?: number,
+  ): AsyncGenerator<AgentEvent> {
+    this.prepareTurnWatermark(session, priorMessageCount)
+    yield* orchestrate(session, this)
+  }
+
+  /** Friendly, retryable model failure (raw cause already logged). */
+  private modelErrorEvent(): AgentEvent {
+    return {
+      event: 'error',
+      data: {
+        code: 'model_error',
+        message: 'Something went wrong. Try again?',
         retryable: true,
       },
     }
@@ -885,7 +1113,69 @@ export class ChatService {
    * `buildReconnectResponse`.
    */
   streamAgentSSE(session: Session, priorMessageCount?: number): Response {
-    const generator = this.agentLoop(session, priorMessageCount)
+    // Cutover flag: multi-agent orchestrator is the default; set
+    // AGENT_ORCHESTRATOR=single for instant rollback to the legacy loop.
+    const useMulti = (process.env.AGENT_ORCHESTRATOR ?? 'multi') !== 'single'
+    const generator = useMulti
+      ? this.orchestratedLoop(session, priorMessageCount)
+      : this.agentLoop(session, priorMessageCount)
+    return this.sseResponse(session, generator)
+  }
+
+  /**
+   * Per-agent endpoint entry: run ONE named agent for this turn. `core`
+   * runs the full orchestrator (Core routes → specialist); any other id
+   * runs that specialist directly (no Core routing). Reuses the same
+   * SSE wire protocol + mobile round-trip (`POST /chat/respond`).
+   */
+  streamSingleAgentSSE(
+    session: Session,
+    agentId: string,
+    priorMessageCount?: number,
+  ): Response {
+    if (agentId === 'core') {
+      return this.sseResponse(
+        session,
+        this.orchestratedLoop(session, priorMessageCount),
+      )
+    }
+    const config = getAgentConfig(agentId)
+    if (!config) {
+      // Unknown agent — the controller 404s before this, but stay safe.
+      return this.sseResponse(session, this.unknownAgentLoop(session))
+    }
+    return this.sseResponse(
+      session,
+      this.singleAgentLoop(session, config, priorMessageCount),
+    )
+  }
+
+  /** Run a single specialist as the whole turn (no Core brief). */
+  private async *singleAgentLoop(
+    session: Session,
+    config: AgentRuntimeConfig,
+    priorMessageCount?: number,
+  ): AsyncGenerator<AgentEvent> {
+    this.prepareTurnWatermark(session, priorMessageCount)
+    yield* this.runSpecialistTurn(session, config, '')
+  }
+
+  /** Fallback generator for an unknown agent id. */
+  private async *unknownAgentLoop(
+    session: Session,
+  ): AsyncGenerator<AgentEvent> {
+    yield {
+      event: 'text_delta',
+      data: { content: "That assistant isn't available." },
+    }
+    yield this.emitDone(session)
+  }
+
+  /** Wrap an AgentEvent generator in a `text/event-stream` HTTP Response. */
+  private sseResponse(
+    session: Session,
+    generator: AsyncGenerator<AgentEvent>,
+  ): Response {
     const encoder = new TextEncoder()
 
     const stream = new ReadableStream<Uint8Array>({
@@ -1225,6 +1515,30 @@ export function buildAllTools(
     }) as Tool
   }
 
+  return out
+}
+
+/**
+ * Build a SCHEMA-ONLY tool set (no execute) from every registry entry that
+ * has an inputSchema — regardless of `executor`. Used for Core's router
+ * turn: `core_handoff` / `core_clarify` are `executor: "server"` affordances
+ * that are never run via MCP/mobile (the orchestrator interprets them), so
+ * `buildAllTools` would skip them and the model would get an EMPTY tool set
+ * and "describe" the call as text instead of emitting a real tool call.
+ */
+export function buildSchemaToolSet(
+  registry: Record<string, ToolMeta>,
+): ToolSet {
+  const out: ToolSet = {}
+  for (const [name, meta] of Object.entries(registry)) {
+    if (!meta.inputSchema) continue
+    out[name] = defineTool({
+      description: meta.description,
+      inputSchema: jsonSchema<Record<string, unknown>>(
+        meta.inputSchema as unknown as Record<string, unknown>,
+      ),
+    }) as Tool
+  }
   return out
 }
 
