@@ -67,12 +67,33 @@ export type ModelRunner = (params: {
   system: string
 }) => StreamTextCall
 
+/**
+ * Hard cap on tokens a single model step may emit. Without it, a model that
+ * derails into a degenerate repetition loop — which happens reliably when the
+ * same tool error is fed back across iterations (e.g. a failing swap/Scallop
+ * preview) — streams text UNBOUNDED. The agent loop's `assistantText += chunk`
+ * accumulation plus the AI SDK's per-chunk stream-part allocations then grow
+ * the heap until the process OOMs. A generous cap (well above any legitimate
+ * reply) bounds each step; the §7 MAX_ITERATIONS bounds the number of steps.
+ */
+const MAX_OUTPUT_TOKENS = 4096
+
+/**
+ * Defense-in-depth char cap on a single assistant turn's buffered text, in
+ * case a provider ignores `maxOutputTokens`. Comfortably above any legitimate
+ * reply (and above the token cap above) — once exceeded we stop buffering /
+ * forwarding chunks but keep draining the stream so `toolCalls` still resolves
+ * and the provider connection closes, bounding memory without orphaning state.
+ */
+const MAX_ASSISTANT_CHARS = 32_000
+
 const DEFAULT_MODEL_RUNNER: ModelRunner = ({ model, messages, tools, system }) =>
   streamText({
     model,
     messages,
     tools,
     system,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
     maxRetries: 2,
     // The AI SDK otherwise collapses provider/stream failures into a
     // generic "No output generated. Check the stream for errors." when
@@ -340,6 +361,15 @@ export class ChatService {
     const MAX_ITERATIONS = 16
     let iterations = 0
 
+    // Behavioral guard distinct from MAX_ITERATIONS: if the model keeps
+    // emitting tool calls that ALL fail, it is in a doomed retry spiral (the
+    // exact pattern that derails the model into the runaway generation the
+    // output caps above defend against). Break early with a friendly message
+    // instead of burning all 16 iterations re-trying a tool that cannot
+    // succeed. Reset to 0 the moment any step makes progress.
+    const MAX_CONSECUTIVE_TOOL_FAILURES = 3
+    let consecutiveFailedSteps = 0
+
     while (iterations++ < MAX_ITERATIONS) {
       yield { event: 'status', data: { message: 'Thinking…' } }
 
@@ -382,10 +412,21 @@ export class ChatService {
       // at the end of the step so the next iteration carries the full
       // context the model just produced.
       let assistantText = ''
+      let outputTruncated = false
       try {
         for await (const chunk of call.textStream) {
-          assistantText += chunk
-          yield { event: 'text_delta', data: { content: chunk } }
+          if (assistantText.length < MAX_ASSISTANT_CHARS) {
+            assistantText += chunk
+            yield { event: 'text_delta', data: { content: chunk } }
+          } else if (!outputTruncated) {
+            outputTruncated = true
+            this.logger.warn(
+              'assistant output exceeded MAX_ASSISTANT_CHARS — draining ' +
+                'stream without buffering (runaway-generation OOM guard)',
+            )
+          }
+          // Past the cap we keep consuming the iterator (no buffering, no
+          // forwarding) so `call.toolCalls` resolves and the stream closes.
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -479,12 +520,26 @@ export class ChatService {
       // tool call sequentially — including reads — to keep the control
       // flow obvious. Revisit once the mobile SDK can handle multiple
       // in-flight `tool_pending` events.
+      // Track per-step progress for the consecutive-failure guard.
+      let stepProgressed = false
+      let stepFailed = false
+
       for (let i = 0; i < toolCalls.length; i++) {
         const tc = toolCalls[i]
         const meta = TOOL_REGISTRY[tc.toolName]
 
         if (meta && meta.executor === 'server') {
-          yield* this.executeServerTool(session, tc, meta, mcpTools)
+          // A server tool that returns data is progress; one that throws
+          // (MCP down, exception) is a failure and feeds the spiral guard,
+          // same as a failed mobile tool.
+          const serverResult = yield* this.executeServerTool(
+            session,
+            tc,
+            meta,
+            mcpTools,
+          )
+          if (serverResult === 'failed') stepFailed = true
+          else stepProgressed = true
           continue
         }
 
@@ -569,6 +624,37 @@ export class ChatService {
           if (appended) await this.persistTurnSoFar(session)
           return
         }
+        if (pendingResult === 'failed') stepFailed = true
+        else stepProgressed = true
+      }
+
+      // Doomed-retry guard: a step where every tool failed and nothing
+      // progressed counts toward the cap; any progress resets it. Bounds a
+      // spiral well below MAX_ITERATIONS and stops feeding the model a growing
+      // wall of identical errors (which is what derails it into a runaway).
+      if (stepFailed && !stepProgressed) {
+        consecutiveFailedSteps++
+        if (consecutiveFailedSteps >= MAX_CONSECUTIVE_TOOL_FAILURES) {
+          this.logger.warn(
+            `agentLoop: ${consecutiveFailedSteps} consecutive all-failed ` +
+              'tool steps — breaking to avoid a retry spiral',
+          )
+          session.state = 'idle'
+          await this.persistTurnSoFar(session)
+          yield {
+            event: 'error',
+            data: {
+              code: 'tool_failed_repeatedly',
+              message:
+                "I couldn't complete that after a few tries. Please try " +
+                'again or adjust your request.',
+              retryable: true,
+            },
+          }
+          return
+        }
+      } else {
+        consecutiveFailedSteps = 0
       }
 
       // Loop back for the next model step.
@@ -596,7 +682,7 @@ export class ChatService {
     tc: { toolCallId: string; toolName: string; input: unknown },
     meta: ToolMeta,
     mcpTools: ToolSet,
-  ): AsyncGenerator<AgentEvent> {
+  ): AsyncGenerator<AgentEvent, 'ok' | 'failed'> {
     yield {
       event: 'status',
       data: { message: progressLabel(meta) },
@@ -638,7 +724,9 @@ export class ChatService {
           result: { status: 'error', error: message },
         },
       }
-      return
+      // A thrown server tool (MCP unavailable, exception) is a real failure —
+      // counts toward the spiral guard, same as a mobile `approved_but_failed`.
+      return 'failed'
     }
 
     // Agent sees the full (unfiltered) payload. The mobile sees the
@@ -658,6 +746,9 @@ export class ChatService {
         result: transformForDisplay(tc.toolName, rawResult),
       },
     }
+    // Returned a result (even a payload-level "failed" the model can reason
+    // over) → progress, not a dead-end retry. Only a thrown tool is 'failed'.
+    return 'ok'
   }
 
   /**
@@ -672,7 +763,7 @@ export class ChatService {
     session: Session,
     tc: { toolCallId: string; toolName: string; input: unknown },
     meta: ToolMeta,
-  ): AsyncGenerator<AgentEvent, 'ok' | 'timeout'> {
+  ): AsyncGenerator<AgentEvent, 'ok' | 'failed' | 'timeout'> {
     const input =
       typeof tc.input === 'object' && tc.input !== null
         ? (tc.input as Record<string, unknown>)
@@ -781,7 +872,11 @@ export class ChatService {
     session.state = 'streaming'
     // Incremental persist (task 11): a tool result is a stable checkpoint.
     await this.persistTurnSoFar(session)
-    return 'ok'
+    // A failed tool result (the mobile responded, but the action errored) is
+    // 'failed' so the loop's spiral guard can count it; a user 'rejected'
+    // result is NOT a failure (the user made a choice) and the model should
+    // get to acknowledge it, so it counts as progress ('ok').
+    return agentResult.status === 'approved_but_failed' ? 'failed' : 'ok'
   }
 
   /**
