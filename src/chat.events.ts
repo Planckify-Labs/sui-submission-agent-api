@@ -92,6 +92,7 @@ export interface DoneData {
 export type SseErrorCode =
   | 'model_error' // LLM API call failed (retryable)
   | 'max_iterations' // agent loop cap reached (retryable)
+  | 'tool_failed_repeatedly' // tools failed N steps in a row; broke the spiral (retryable)
   | 'tool_timeout' // mobile didn't respond in time (retryable)
   | 'session_error' // internal session sync failure (non-retryable)
   | 'internal_error' // uncaught server exception (non-retryable)

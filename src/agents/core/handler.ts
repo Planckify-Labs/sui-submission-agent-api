@@ -64,6 +64,11 @@ const DEFAULT_CORE_RUNNER: CoreModelRunner = ({
     messages,
     tools,
     system,
+    // Bound a single step's output — without this a degenerate repetition
+    // loop (common when a tool error is fed back repeatedly) streams text
+    // unbounded and the orchestrator's accumulation OOMs the process. Mirrors
+    // the cap in chat.service.ts's DEFAULT_MODEL_RUNNER.
+    maxOutputTokens: 4096,
     maxRetries: 2,
   }) as unknown as CoreTurnResult
 
