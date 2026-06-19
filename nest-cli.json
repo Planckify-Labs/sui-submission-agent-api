@@ -7,7 +7,7 @@
     "assets": [
       {
         "include": "agents/manifests/**/*.json",
-        "outDir": "dist",
+        "outDir": "dist/src",
         "watchAssets": true
       }
     ]

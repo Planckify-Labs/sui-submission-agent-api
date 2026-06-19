@@ -84,9 +84,16 @@ function moonshotProvider() {
           // Non-JSON body — leave untouched.
         }
       }
+      // 60-second per-attempt timeout so transient TCP hangs (ETIMEDOUT)
+      // fail fast and the AI SDK's maxRetries can actually rotate instead of
+      // all three attempts waiting for the OS-level socket timeout (~2 min).
+      const timeoutSignal = AbortSignal.timeout(60_000)
+      const signal = init?.signal
+        ? AbortSignal.any([init.signal, timeoutSignal])
+        : timeoutSignal
       const startedAt = Date.now()
       try {
-        const res = await fetch(input as RequestInfo, { ...init, body: outBody })
+        const res = await fetch(input as RequestInfo, { ...init, body: outBody, signal })
         logger.log(`[moonshot] status=${res.status} dur=${Date.now() - startedAt}ms`)
         return res
       } catch (err) {

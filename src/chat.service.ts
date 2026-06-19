@@ -331,10 +331,16 @@ export class ChatService implements OrchestratorEngine {
         this.logger.log(
           `[moonshot.fetch] enter bodyType=${bodyType} inLen=${bodyLen} outLen=${typeof outBody === 'string' ? outBody.length : -1} hookApplied=${hookApplied} hasToolTurn=${hasMessages}`,
         )
+        // 60-second per-attempt timeout — mirrors the same guard in models.ts.
+        const timeoutSignal = AbortSignal.timeout(60_000)
+        const signal = init?.signal
+          ? AbortSignal.any([init.signal, timeoutSignal])
+          : timeoutSignal
         try {
           const res = await fetch(input as RequestInfo, {
             ...init,
             body: outBody,
+            signal,
           })
           this.logger.log(
             `[moonshot.fetch] response status=${res.status} dur=${Date.now() - startedAt}ms`,
