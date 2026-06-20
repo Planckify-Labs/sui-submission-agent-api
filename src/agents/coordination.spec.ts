@@ -12,8 +12,8 @@ import { SHARED_AGENT_RULES } from './sharedPrompt'
  */
 describe('multi-agent coordination prompts', () => {
   describe('SHARED_AGENT_RULES — specialist lane discipline', () => {
-    it('tells specialists to ignore out-of-domain parts', () => {
-      expect(SHARED_AGENT_RULES).toMatch(/stay in your lane/i)
+    it('tells specialists to handle only their step and ignore out-of-domain parts', () => {
+      expect(SHARED_AGENT_RULES).toMatch(/handle ONLY/i)
       expect(SHARED_AGENT_RULES).toMatch(/ignore/i)
     })
 
@@ -27,8 +27,18 @@ describe('multi-agent coordination prompts', () => {
     it('forbids announcing the hand-off / mentioning coordinators to the user', () => {
       // The wallet agent leaked "a coordinator will route those to the
       // appropriate specialists" — internal mechanics must stay hidden.
-      expect(SHARED_AGENT_RULES).toMatch(/do NOT announce/i)
+      expect(SHARED_AGENT_RULES).toMatch(
+        /never reveal the machinery|that will be routed/i,
+      )
       expect(SHARED_AGENT_RULES).toMatch(/coordinator/i)
+    })
+
+    it('forbids leaking specialist identity or progress filler (the screenshot bug)', () => {
+      // "I'm a wallet specialist… that requires a different specialist with
+      // DeFi protocols" + "I'm preparing that swap — just a moment" leaked
+      // straight into the chat. The forbid-list must keep naming them.
+      expect(SHARED_AGENT_RULES).toMatch(/wallet specialist/i)
+      expect(SHARED_AGENT_RULES).toMatch(/filler|progress narration/i)
     })
   })
 
@@ -45,6 +55,13 @@ describe('multi-agent coordination prompts', () => {
 
     it('treats a specialist\'s "can\'t" as NOT handled', () => {
       expect(prompt).toMatch(/can't.*(does NOT count|not .*handled)/i)
+    })
+
+    it('routes a relative-amount swap balance-first (wallet → defi)', () => {
+      // "swap 90% of my SUI": the amount can't be known until the balance is
+      // read, so Core must delegate the read to wallet BEFORE the swap to defi.
+      expect(prompt).toMatch(/relative/i)
+      expect(prompt).toMatch(/balance FIRST|90% of my SUI/i)
     })
   })
 
