@@ -1,32 +1,62 @@
 import type { AgentEvent } from '../chat.events'
 import type { Session } from '../session/types'
-import type { AgentRuntimeConfig } from './agentConfig'
-import type { CoreDecision, OrchestratorEngine } from './engine'
-import { orchestrate } from './orchestrator'
+import type { CoreDecision, CoreStep, OrchestratorEngine } from './engine'
+import { MAX_COORDINATION_HOPS, orchestrate } from './orchestrator'
 
 const fakeSession = { id: 'sess-1' } as unknown as Session
 
+/** Build a route decision from one or more steps. */
+const route = (
+  ...steps: Array<{ to: string; brief: string }>
+): CoreDecision => ({
+  kind: 'route',
+  steps: steps as CoreStep[],
+})
+
+type RecordingEngine = OrchestratorEngine & {
+  ran: string[]
+  briefs: string[]
+  coreCalls: Array<{ resuming: boolean }>
+}
+
 /**
- * Fake engine: records which specialist (if any) ran, and lets each test
- * pin Core's decision. Mirrors the real `ChatService` engine surface so the
- * orchestrator flow can be tested without a model or a session machine.
+ * Fake engine driven by a SCRIPT of Core decisions — one per Core call.
+ * Mirrors the real `ChatService` engine surface so the coordination flow can
+ * be tested without a model or a session machine.
+ *
+ * - `runCoreRouter` pops the next scripted decision. It emits prose only when
+ *   answering the user directly on the first hop (a route just commits the
+ *   hand-off; a silent resume closes with no text) — matching the real engine.
+ * - `runSpecialistTurn` records the run and emits its OWN `done`, which the
+ *   orchestrator must swallow so exactly one terminal `done` reaches mobile.
  */
-function fakeEngine(decision: CoreDecision): OrchestratorEngine & {
-  ranSpecialist?: AgentRuntimeConfig
-  ranBrief?: string
-} {
-  const engine: OrchestratorEngine & {
-    ranSpecialist?: AgentRuntimeConfig
-    ranBrief?: string
-  } = {
-    async *runCoreRouter(): AsyncGenerator<AgentEvent, CoreDecision> {
-      yield { event: 'text_delta', data: { content: 'core says hi' } }
+function fakeEngine(decisions: CoreDecision[]): RecordingEngine {
+  let i = 0
+  const engine: RecordingEngine = {
+    ran: [],
+    briefs: [],
+    coreCalls: [],
+    async *runCoreRouter(
+      _session,
+      options,
+    ): AsyncGenerator<AgentEvent, CoreDecision> {
+      const resuming = options?.resuming === true
+      engine.coreCalls.push({ resuming })
+      const decision: CoreDecision = decisions[i++] ?? { kind: 'answered' }
+      if (decision.kind === 'answered' && !resuming) {
+        yield { event: 'text_delta', data: { content: 'core answer' } }
+      }
       return decision
     },
-    async *runSpecialistTurn(_session, config, brief): AsyncGenerator<AgentEvent> {
-      engine.ranSpecialist = config
-      engine.ranBrief = brief
+    async *runSpecialistTurn(
+      _session,
+      config,
+      brief,
+    ): AsyncGenerator<AgentEvent> {
+      engine.ran.push(config.id)
+      engine.briefs.push(brief)
       yield { event: 'text_delta', data: { content: `ran ${config.id}` } }
+      // The orchestrator must drop this mid-turn done.
       yield engine.emitDone(fakeSession)
     },
     emitDone(session): AgentEvent {
@@ -42,32 +72,110 @@ async function collect(gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> {
   return out
 }
 
-describe('agents/orchestrator orchestrate', () => {
-  it('on "answered", emits Core text then done — no specialist runs', async () => {
-    const engine = fakeEngine({ kind: 'answered' })
+const doneCount = (events: AgentEvent[]): number =>
+  events.filter((e) => e.event === 'done').length
+
+describe('agents/orchestrator orchestrate (multi-agent coordination)', () => {
+  it('Core answers directly — no specialist, just text then done', async () => {
+    const engine = fakeEngine([{ kind: 'answered' }])
     const events = await collect(orchestrate(fakeSession, engine))
+    expect(engine.ran).toEqual([])
     expect(events.map((e) => e.event)).toEqual(['text_delta', 'done'])
-    expect(engine.ranSpecialist).toBeUndefined()
   })
 
-  it('on a valid route, runs the named specialist with the brief', async () => {
-    const engine = fakeEngine({ kind: 'route', to: 'defi', brief: 'swap 2 SUI' })
+  it('delegates one step to the named specialist with its brief, then ends', async () => {
+    const engine = fakeEngine([route({ to: 'defi', brief: 'swap 2 SUI' })])
     const events = await collect(orchestrate(fakeSession, engine))
-    expect(engine.ranSpecialist?.id).toBe('defi')
-    expect(engine.ranBrief).toBe('swap 2 SUI')
-    // Core text, then the specialist's text + its own done.
-    expect(events.map((e) => e.event)).toEqual(['text_delta', 'text_delta', 'done'])
-  })
-
-  it('on a route to an unknown agent, fails soft (text + done), no specialist', async () => {
-    const engine = fakeEngine({
-      kind: 'route',
-      to: 'ghost' as never,
-      brief: 'x',
-    })
-    const events = await collect(orchestrate(fakeSession, engine))
-    expect(engine.ranSpecialist).toBeUndefined()
+    expect(engine.ran).toEqual(['defi'])
+    expect(engine.briefs).toEqual(['swap 2 SUI'])
+    expect(doneCount(events)).toBe(1)
     expect(events.at(-1)?.event).toBe('done')
-    expect(events.some((e) => e.event === 'text_delta')).toBe(true)
+  })
+
+  // THE regression: a compound request emits BOTH hand-offs in ONE Core
+  // response. Both must run, in order — the old code kept only the first, which
+  // is how the swap/yield part silently vanished.
+  it('runs every step of a multi-step decision, in order', async () => {
+    const engine = fakeEngine([
+      route(
+        { to: 'wallet', brief: 'show points, balance, products' },
+        { to: 'defi', brief: 'swap 1.1 SUI to USDC then earn yield' },
+      ),
+    ])
+    const events = await collect(orchestrate(fakeSession, engine))
+    expect(engine.ran).toEqual(['wallet', 'defi'])
+    expect(engine.briefs).toEqual([
+      'show points, balance, products',
+      'swap 1.1 SUI to USDC then earn yield',
+    ])
+    expect(doneCount(events)).toBe(1)
+  })
+
+  // Belt-and-suspenders: a model that delegates one step at a time still gets
+  // both done because Core is re-entered (resuming) after the first.
+  it('coordinates two specialists across resume hops (wallet → defi → done)', async () => {
+    const engine = fakeEngine([
+      route({ to: 'wallet', brief: 'show SUI balance' }),
+      route({ to: 'defi', brief: 'swap 5 SUI to USDC' }),
+      { kind: 'answered' },
+    ])
+    const events = await collect(orchestrate(fakeSession, engine))
+    expect(engine.ran).toEqual(['wallet', 'defi'])
+    expect(engine.coreCalls.map((c) => c.resuming)).toEqual([false, true, true])
+    expect(doneCount(events)).toBe(1)
+  })
+
+  it("emits exactly one terminal done — a specialist's own done is swallowed", async () => {
+    const engine = fakeEngine([
+      route({ to: 'wallet', brief: 'b' }),
+      { kind: 'answered' },
+    ])
+    const events = await collect(orchestrate(fakeSession, engine))
+    expect(doneCount(events)).toBe(1)
+    expect(events.at(-1)?.event).toBe('done')
+  })
+
+  it('skips an invalid step but still runs the valid ones', async () => {
+    const engine = fakeEngine([
+      route({ to: 'ghost', brief: 'x' }, { to: 'wallet', brief: 'balance' }),
+      { kind: 'answered' },
+    ])
+    const events = await collect(orchestrate(fakeSession, engine))
+    expect(engine.ran).toEqual(['wallet'])
+    expect(events.at(-1)?.event).toBe('done')
+  })
+
+  it('a route with only invalid steps ends cleanly without running anything', async () => {
+    const engine = fakeEngine([route({ to: 'ghost', brief: 'x' })])
+    const events = await collect(orchestrate(fakeSession, engine))
+    expect(engine.ran).toEqual([])
+    expect(events.at(-1)?.event).toBe('done')
+  })
+
+  it('caps runaway delegation at MAX_COORDINATION_HOPS and finalizes once', async () => {
+    // Core never converges — it keeps delegating DISTINCT steps (distinct
+    // briefs so the identical-step guard doesn't fire first).
+    const engine = fakeEngine(
+      Array.from({ length: MAX_COORDINATION_HOPS + 6 }, (_, n) =>
+        route({ to: 'wallet', brief: `step ${n}` }),
+      ),
+    )
+    const events = await collect(orchestrate(fakeSession, engine))
+    expect(engine.ran.length).toBe(MAX_COORDINATION_HOPS)
+    expect(doneCount(events)).toBe(1)
+    expect(events.at(-1)?.event).toBe('done')
+  })
+
+  // Guards the "agent repeats itself" symptom: an identical re-delegated step
+  // must NOT replay the specialist's narration.
+  it('runs an identical step only once across hops', async () => {
+    const engine = fakeEngine([
+      route({ to: 'defi', brief: 'swap 5 SUI to USDC' }),
+      route({ to: 'defi', brief: 'swap 5 SUI to USDC' }),
+    ])
+    const events = await collect(orchestrate(fakeSession, engine))
+    expect(engine.ran).toEqual(['defi'])
+    expect(doneCount(events)).toBe(1)
+    expect(events.at(-1)?.event).toBe('done')
   })
 })

@@ -79,6 +79,10 @@ function moonshotProvider() {
         try {
           const body = JSON.parse(init.body) as Record<string, unknown>
           body.thinking = { type: 'disabled' }
+          // NOTE: do NOT set `frequency_penalty`/`presence_penalty` here —
+          // kimi-k2.6 rejects any non-zero value ("only 0 is allowed for this
+          // model", HTTP 400). Repetition is curbed via the prompt/coordination
+          // rules (scoped briefs, silent Core, re-delegation guard) instead.
           outBody = JSON.stringify(body)
         } catch {
           // Non-JSON body — leave untouched.
@@ -93,8 +97,14 @@ function moonshotProvider() {
         : timeoutSignal
       const startedAt = Date.now()
       try {
-        const res = await fetch(input as RequestInfo, { ...init, body: outBody, signal })
-        logger.log(`[moonshot] status=${res.status} dur=${Date.now() - startedAt}ms`)
+        const res = await fetch(input as RequestInfo, {
+          ...init,
+          body: outBody,
+          signal,
+        })
+        logger.log(
+          `[moonshot] status=${res.status} dur=${Date.now() - startedAt}ms`,
+        )
         return res
       } catch (err) {
         logger.error(

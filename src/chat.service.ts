@@ -5,40 +5,43 @@
 // balances, redemption details). Error `.message` strings and stack
 // traces are allowed; request/response payloads are not.
 import { randomUUID } from 'node:crypto'
+import { createOpenAI } from '@ai-sdk/openai'
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { createOpenAI } from '@ai-sdk/openai'
 import {
-  jsonSchema,
-  streamText,
   tool as defineTool,
+  jsonSchema,
   type LanguageModel,
   type ModelMessage,
+  streamText,
   type Tool,
   type ToolSet,
 } from 'ai'
-import { MCPClientService } from './mcp-client.service'
-import { SessionService } from './session'
 import {
-  TOOL_REGISTRY,
-  type JsonSchemaObject,
-  type ToolMeta,
-} from './tools/registry'
-import { enabledResourceIds, resolveResourceRequest } from './x402/catalog'
-import { buildHumanSummary } from './tools/human-summary'
-import { buildSystemPrompt, buildWalletContextPrompt } from './agent/system-prompt'
-import { orchestrate } from './agents/orchestrator'
+  buildSystemPrompt,
+  buildWalletContextPrompt,
+} from './agent/system-prompt'
 import {
-  decideCoreRoute,
-  type CoreDecision,
-  type OrchestratorEngine,
-} from './agents/engine'
-import {
+  type AgentRuntimeConfig,
   getAgentConfig,
   listSpecialistIds,
-  type AgentRuntimeConfig,
 } from './agents/agentConfig'
+import { CORE_CONTINUATION_NOTE } from './agents/core/systemPrompt'
+import {
+  type CoreDecision,
+  decideCoreRoute,
+  type OrchestratorEngine,
+} from './agents/engine'
 import { resolveModel } from './agents/models'
+import { orchestrate } from './agents/orchestrator'
+import {
+  type AgentEvent,
+  type AgentToolResult,
+  encodeSseEvent,
+} from './chat.events'
+import { ConversationService } from './history/conversation.service'
+import { MCPClientService } from './mcp-client.service'
+import { SessionService } from './session'
 import type {
   MobileResponse,
   Session,
@@ -46,12 +49,13 @@ import type {
   WalletContext,
 } from './session/types'
 import { TimeoutError } from './session/types'
+import { buildHumanSummary } from './tools/human-summary'
 import {
-  encodeSseEvent,
-  type AgentEvent,
-  type AgentToolResult,
-} from './chat.events'
-import { ConversationService } from './history/conversation.service'
+  type JsonSchemaObject,
+  TOOL_REGISTRY,
+  type ToolMeta,
+} from './tools/registry'
+import { enabledResourceIds, resolveResourceRequest } from './x402/catalog'
 
 /**
  * Signature the agent loop needs from the language model. The real path
@@ -122,7 +126,12 @@ const MAX_OUTPUT_TOKENS = 4096
  */
 const MAX_ASSISTANT_CHARS = 32_000
 
-const DEFAULT_MODEL_RUNNER: ModelRunner = ({ model, messages, tools, system }) =>
+const DEFAULT_MODEL_RUNNER: ModelRunner = ({
+  model,
+  messages,
+  tools,
+  system,
+}) =>
   streamText({
     model,
     messages,
@@ -274,7 +283,10 @@ export class ChatService implements OrchestratorEngine {
     if (from >= session.messages.length) return
     const slice = session.messages.slice(from)
     try {
-      await this.conversationService.appendMessages(session.conversationId, slice)
+      await this.conversationService.appendMessages(
+        session.conversationId,
+        slice,
+      )
       session.lastPersistedIndex = session.messages.length
     } catch (err) {
       this.logger.warn(
@@ -310,8 +322,7 @@ export class ChatService implements OrchestratorEngine {
       // the provider's fetch hook.
       fetch: async (input, init) => {
         const bodyType = typeof init?.body
-        const bodyLen =
-          typeof init?.body === 'string' ? init.body.length : -1
+        const bodyLen = typeof init?.body === 'string' ? init.body.length : -1
         let hookApplied = false
         let outBody = init?.body
         if (init?.body && typeof init.body === 'string') {
@@ -365,7 +376,10 @@ export class ChatService implements OrchestratorEngine {
    * `streamAgentSSE()`. This keeps the loop pure and easy to unit-test
    * without standing up a Fastify adapter.
    */
-  async *agentLoop(session: Session, priorMessageCount?: number): AsyncGenerator<AgentEvent> {
+  async *agentLoop(
+    session: Session,
+    priorMessageCount?: number,
+  ): AsyncGenerator<AgentEvent> {
     // Single-agent fallback (AGENT_ORCHESTRATOR=single). Runs ONE model with
     // the full tool set + the legacy system prompt — preserved for instant
     // rollback from the multi-agent orchestrator.
@@ -737,7 +751,7 @@ export class ChatService implements OrchestratorEngine {
   ): string {
     const header = buildWalletContextPrompt(session.wallet_context)
     const briefNote = brief
-      ? `\n\n## This turn\nThe user's request has been routed to you: ${brief}`
+      ? `\n\n## This turn — do ONLY this\n${brief}\n\nThis is the ONLY thing to handle this turn. The user's latest message may bundle other requests that are NOT your job — IGNORE those parts completely. A coordinator routes them to the right specialist separately. Do NOT mention, decline, or suggest workarounds for anything outside this step (e.g. don't say "I can't swap" or point the user to another app) — just do this step and stop.`
       : ''
     return `${header}\n\n${config.buildSystemPrompt()}${briefNote}`
   }
@@ -766,7 +780,9 @@ export class ChatService implements OrchestratorEngine {
    */
   async *runCoreRouter(
     session: Session,
+    options?: { resuming?: boolean },
   ): AsyncGenerator<AgentEvent, CoreDecision> {
+    const resuming = options?.resuming === true
     this.prepareTurnWatermark(session)
     session.state = 'streaming'
     const coreCfg = getAgentConfig('core')
@@ -786,6 +802,15 @@ export class ChatService implements OrchestratorEngine {
 
     yield { event: 'status', data: { message: 'Thinking…' } }
 
+    // When resuming mid-turn (a specialist just finished a step), append
+    // the continuation note so Core decides whether to delegate the next
+    // step or end the turn — without re-narrating what the specialist
+    // already told the user.
+    const baseSystem = this.buildAgentSystem(session, coreCfg)
+    const system = resuming
+      ? `${baseSystem}\n\n${CORE_CONTINUATION_NOTE}`
+      : baseSystem
+
     let call: StreamTextCall
     try {
       call = this.modelRunner({
@@ -794,7 +819,7 @@ export class ChatService implements OrchestratorEngine {
           dropOrphanedToolResults(sanitizeOrphanedToolCalls(session.messages)),
         ),
         tools: buildSchemaToolSet(coreCfg.tools),
-        system: this.buildAgentSystem(session, coreCfg),
+        system,
       })
     } catch (err) {
       this.logger.error(`Core streamText failed: ${String(err)}`)
@@ -802,13 +827,19 @@ export class ChatService implements OrchestratorEngine {
       return { kind: 'answered' }
     }
 
+    // BUFFER Core's prose — do NOT stream it live. Core is a SILENT
+    // coordinator: its text is shown only when it answers the user DIRECTLY
+    // (small talk / capability / a clarifying question). When it routes, the
+    // prose is internal rationale ("I need to delegate this to the DeFi
+    // specialist…") that must never reach the user, and when it resumes
+    // after a specialist the specialist has already replied. Streaming live
+    // would leak that rationale and double up the specialist's answer — the
+    // exact "repeating itself" symptom. We can only decide route-vs-answer
+    // once `toolCalls` resolve, so we buffer first, then choose.
     let text = ''
     try {
       for await (const chunk of call.textStream) {
-        if (text.length < MAX_ASSISTANT_CHARS) {
-          text += chunk
-          yield { event: 'text_delta', data: { content: chunk } }
-        }
+        if (text.length < MAX_ASSISTANT_CHARS) text += chunk
       }
     } catch (err) {
       this.logger.error(`Core text stream failed: ${String(err)}`)
@@ -816,7 +847,11 @@ export class ChatService implements OrchestratorEngine {
       return { kind: 'answered' }
     }
 
-    let toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }>
+    let toolCalls: Array<{
+      toolCallId: string
+      toolName: string
+      input: unknown
+    }>
     try {
       toolCalls = await call.toolCalls
     } catch (err) {
@@ -828,30 +863,37 @@ export class ChatService implements OrchestratorEngine {
     const decision = decideCoreRoute(toolCalls, listSpecialistIds())
 
     if (decision.kind === 'route') {
-      // Commit any prose Core streamed (rare on a route) but NOT the handoff
-      // tool-call — it's an internal signal, not part of the conversation.
-      if (text.length > 0) {
-        session.messages.push({
-          role: 'assistant',
-          content: [{ type: 'text', text }],
-        })
-        await this.persistTurnSoFar(session)
-      }
+      // Core is delegating — stay SILENT. Drop its prose (internal routing
+      // rationale) entirely: not streamed, not persisted. The specialist
+      // owns the user-facing narration for this step.
       return decision
     }
 
-    // Answered: surface a `core_clarify` question if Core emitted one without
-    // streaming prose. Otherwise commit whatever text it produced.
-    if (text.length === 0) {
-      const clarify = toolCalls.find((tc) => tc.toolName === 'core_clarify')
-      const question = clarify ? readClarifyQuestion(clarify.input) : undefined
-      const reply = question ?? 'How can I help?'
-      text = reply
-      yield { event: 'text_delta', data: { content: reply } }
+    // Answered. Core speaks here and ONLY here. Pick what (if anything) to say.
+    const clarify = toolCalls.find((tc) => tc.toolName === 'core_clarify')
+    const question = clarify ? readClarifyQuestion(clarify.input) : undefined
+
+    if (resuming && !question) {
+      // Mid-turn resume with nothing to add — the specialist already replied.
+      // End SILENTLY (no "How can I help?" non-sequitur, no echo of the
+      // specialist's answer).
+      session.state = 'idle'
+      await this.persistTurnSoFar(session)
+      return { kind: 'answered' }
     }
+
+    // On a resume we only reach here for a clarifying question. On a fresh
+    // turn, surface Core's direct answer (greeting / capability), falling
+    // back to a clarifying question, then a safe default.
+    const reply = resuming
+      ? (question as string)
+      : text.length > 0
+        ? text
+        : (question ?? 'How can I help?')
+    yield { event: 'text_delta', data: { content: reply } }
     session.messages.push({
       role: 'assistant',
-      content: [{ type: 'text', text }],
+      content: [{ type: 'text', text: reply }],
     })
     session.state = 'idle'
     await this.persistTurnSoFar(session)
@@ -966,7 +1008,11 @@ export class ChatService implements OrchestratorEngine {
     // Agent sees the full (unfiltered) payload. The mobile sees the
     // display-filtered copy.
     session.messages.push(
-      toolResultMessage(tc.toolCallId, tc.toolName, transformForAgent(rawResult)),
+      toolResultMessage(
+        tc.toolCallId,
+        tc.toolName,
+        transformForAgent(rawResult),
+      ),
     )
     // Incremental persist (task 11): a server-tool result is a stable
     // checkpoint — flush so the next mid-turn crash doesn't lose it.
@@ -1099,7 +1145,9 @@ export class ChatService implements OrchestratorEngine {
     }
 
     const agentResult = buildAgentToolResult(mobileResult)
-    session.messages.push(toolResultMessage(tc.toolCallId, tc.toolName, agentResult))
+    session.messages.push(
+      toolResultMessage(tc.toolCallId, tc.toolName, agentResult),
+    )
     // Mobile tool resolved — clear the awaiting watermark so a later
     // reconnect doesn't mistakenly mark this call as interrupted (task 12).
     session.awaitingMobileSince = undefined
@@ -1590,7 +1638,10 @@ function sanitizeOrphanedToolCalls(messages: ModelMessage[]): ModelMessage[] {
         (part as { type?: unknown }).type === 'tool-call'
       ) {
         const tc = part as { toolCallId?: unknown; toolName?: unknown }
-        if (typeof tc.toolCallId === 'string' && typeof tc.toolName === 'string') {
+        if (
+          typeof tc.toolCallId === 'string' &&
+          typeof tc.toolName === 'string'
+        ) {
           ids.push({ toolCallId: tc.toolCallId, toolName: tc.toolName })
         }
       }
@@ -1630,7 +1681,10 @@ function sanitizeOrphanedToolCalls(messages: ModelMessage[]): ModelMessage[] {
         (part as { type?: unknown }).type === 'tool-call'
       ) {
         const tc = part as { toolCallId?: unknown; toolName?: unknown }
-        if (typeof tc.toolCallId === 'string' && typeof tc.toolName === 'string') {
+        if (
+          typeof tc.toolCallId === 'string' &&
+          typeof tc.toolName === 'string'
+        ) {
           ids.push({ toolCallId: tc.toolCallId, toolName: tc.toolName })
         }
       }

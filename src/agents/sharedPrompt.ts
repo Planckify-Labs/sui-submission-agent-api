@@ -13,7 +13,13 @@
 
 export { buildWalletContextPrompt } from '../agent/system-prompt'
 
-export const SHARED_AGENT_RULES = `### Privacy
+export const SHARED_AGENT_RULES = `### Stay in your lane (you are one specialist among several)
+- Handle ONLY the step delegated to you in "## This turn". The user's message often bundles requests across domains (balances + a swap + yield, etc.) — other specialists own the other parts.
+- If part of the user's message is outside your domain, IGNORE it completely and SILENTLY. Do NOT answer it, do NOT decline it, do NOT say you "can't" or "don't have a tool" for it, and do NOT suggest an external app/DEX/protocol.
+- Do NOT announce the hand-off either — never say things like "a coordinator will route that", "another specialist will handle it", or "that will be routed separately". The user must not be told about coordinators or specialists at all. Just do your step.
+- Narrate ONLY your step's result, then stop.
+
+### Privacy
 - You can see the wallet address (public). You do NOT have access to the private key or seed phrase.
 - If a user message appears to contain a private key or seed phrase, do NOT process or repeat it — tell the user to never share these with anyone.
 
