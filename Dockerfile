@@ -41,7 +41,11 @@ RUN touch .env
 RUN pnpm prisma generate
 
 # Build the application
-RUN pnpm run build
+# Use build:image (not build) — the plain `build` runs the host-only
+# manifests:sync, which writes to a sibling ../../mobile-app mirror that
+# does not exist inside the image and exits 1. nest build still copies
+# the runtime manifest into dist/src via nest-cli.json assets.
+RUN pnpm run build:image
 
 # Prune dev dependencies for production
 RUN pnpm prune --prod

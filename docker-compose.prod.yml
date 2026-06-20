@@ -17,6 +17,9 @@ services:
       STT_AI_API_KEY: ${STT_AI_API_KEY}
       CHAT_API_KEY: ${CHAT_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # Orchestrator mode: "multi" (default) or "single" for instant rollback
+      # to the legacy single-agent loop (src/chat.service.ts).
+      AGENT_ORCHESTRATOR: ${AGENT_ORCHESTRATOR:-multi}
       # TakumiPay integration
       TAKUMIPAY_API_URL: ${TAKUMIPAY_API_URL}
       TAKUMIPAY_API_KEY: ${TAKUMIPAY_API_KEY}
