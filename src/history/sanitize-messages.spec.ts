@@ -106,7 +106,9 @@ describe('sanitizeMessages', () => {
     // Original reference unchanged
     expect(
       (
-        message.content as Array<{ output: { value: { voucher_code: string } } }>
+        message.content as unknown as Array<{
+          output: { value: { voucher_code: string } }
+        }>
       )[0].output.value.voucher_code,
     ).toBe('KEEP-INPUT-INTACT')
   })
