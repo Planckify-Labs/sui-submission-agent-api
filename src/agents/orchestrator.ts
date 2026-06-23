@@ -31,7 +31,7 @@
 
 import { Logger } from '@nestjs/common'
 import type { AgentEvent } from '../chat.events'
-import type { Session } from '../session/types'
+import type { Session, WalletContext } from '../session/types'
 import { getAgentConfig } from './agentConfig'
 import type { OrchestratorEngine } from './engine'
 
@@ -101,6 +101,15 @@ export async function* orchestrate(
       )) {
         if (ev.event === 'done') continue
         if (ev.event === 'error') specialistErrored = true
+        if (ev.event === 'tool_pending') {
+          // §9 wallet-context isolation: forward the turn's wallet_context
+          // verbatim on every tool-call envelope so the mobile executor
+          // signs against the wallet that initiated the turn, never the
+          // home-screen active wallet.
+          const wallet_context: WalletContext = session.wallet_context
+          yield { ...ev, data: { ...ev.data, wallet_context } }
+          continue
+        }
         yield ev
       }
 

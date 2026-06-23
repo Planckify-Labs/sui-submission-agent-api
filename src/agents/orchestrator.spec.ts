@@ -178,4 +178,50 @@ describe('agents/orchestrator orchestrate (multi-agent coordination)', () => {
     expect(doneCount(events)).toBe(1)
     expect(events.at(-1)?.event).toBe('done')
   })
+
+  it('stamps wallet_context (§9) on every tool_pending forwarded from a specialist', async () => {
+    const wallet_context = {
+      address: '0xabc',
+      namespace: 'eip155' as const,
+      chain_id: 8453,
+      chain_name: 'Base',
+      chain_symbol: 'ETH',
+    }
+    const session = { id: 'sess-1', wallet_context } as unknown as Session
+
+    // The specialist emits a tool_pending WITHOUT wallet_context; the
+    // orchestrator must stamp the turn's session.wallet_context onto it.
+    const base = fakeEngine([route({ to: 'wallet', brief: 'send 1 USDC' })])
+    const engine: RecordingEngine = {
+      ...base,
+      async *runSpecialistTurn(_session, config, brief) {
+        base.ran.push(config.id)
+        base.briefs.push(brief)
+        yield {
+          event: 'tool_pending',
+          data: {
+            session_id: session.id,
+            tool_call_id: 'tc-1',
+            name: 'wallet_send',
+            input: {},
+            meta: {
+              executor: 'mobile',
+              capability: 'sign_and_send',
+              category: 'write',
+              human_summary: 'Send 1 USDC',
+            },
+          },
+        } as unknown as AgentEvent
+        yield base.emitDone(session)
+      },
+    }
+
+    const events = await collect(orchestrate(session, engine))
+    const pending = events.filter(
+      (e): e is Extract<AgentEvent, { event: 'tool_pending' }> =>
+        e.event === 'tool_pending',
+    )
+    expect(pending).toHaveLength(1)
+    expect(pending[0].data.wallet_context).toEqual(wallet_context)
+  })
 })

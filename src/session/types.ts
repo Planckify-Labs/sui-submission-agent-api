@@ -96,6 +96,14 @@ export interface ToolPendingPayload {
    * verified by the Task 20 e2e test.
    */
   origin_agent_id?: string
+  /**
+   * Wallet context for this tool call (spec §9). The orchestrator stamps
+   * every `tool_pending` envelope with the turn's `Session.wallet_context`
+   * so the mobile executor signs against the wallet that initiated the
+   * turn, never the home-screen active wallet. Additive — clients that
+   * already read wallet_context from the session ignore the duplicate.
+   */
+  wallet_context?: WalletContext
 }
 
 /**
