@@ -21,6 +21,29 @@ export interface CoreStep {
 }
 
 /**
+ * STRUCTURED result of one completed specialist step — the typed channel
+ * Core consumes on resume INSTEAD of re-reading the specialist's raw prose
+ * from the shared transcript.
+ *
+ * The old design fed Core the full message log, so its routing decision
+ * depended on parsing the specialist's free-text narration — which is what
+ * let a reworded re-narration drive a re-delegation loop, and let machinery
+ * leaks into Core's context. With this, Core sees one record per step:
+ *   - `status: 'ran'`   — the right specialist handled this domain (even if it
+ *                          couldn't complete it or ended by asking the user a
+ *                          question). The domain is DONE for this turn.
+ *   - `status: 'failed'` — the specialist turn errored out.
+ * `summary` is the specialist's own (leak-filtered, truncated) reply, for
+ * Core's context only — never re-streamed to the user.
+ */
+export interface StepResult {
+  to: AgentId
+  brief: string
+  status: 'ran' | 'failed'
+  summary: string
+}
+
+/**
  * Core delegated one or MORE steps this call. A compound request ("show my
  * balance AND swap AND earn yield") yields several steps in ONE Core response;
  * the orchestrator runs them in order. Keeping every step (not just the first)
@@ -50,10 +73,19 @@ export interface OrchestratorEngine {
    * that mode Core decides whether to delegate the next step or end the
    * turn, and an empty decision closes the turn SILENTLY (the specialist
    * already replied) instead of emitting a "How can I help?" fallback.
+   *
+   * `options.turnStartIndex` is the `session.messages` length at the start
+   * of the turn. Core is shown ONLY `messages[0..turnStartIndex)` (history +
+   * the user's request) — never this turn's specialist prose/tool-results —
+   * so it routes from the structured `options.ledger`, not raw narration.
    */
   runCoreRouter(
     session: Session,
-    options?: { resuming?: boolean },
+    options?: {
+      resuming?: boolean
+      turnStartIndex?: number
+      ledger?: readonly StepResult[]
+    },
   ): AsyncGenerator<AgentEvent, CoreDecision>
 
   /**

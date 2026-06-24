@@ -1,19 +1,16 @@
-import { Test, type TestingModule } from '@nestjs/testing'
 import { ConfigService } from '@nestjs/config'
+import { Test, type TestingModule } from '@nestjs/testing'
 import type { LanguageModel, ModelMessage, ToolSet } from 'ai'
-import { ChatService, type ModelRunner, type StreamTextCall } from './chat.service'
+import type { AgentEvent, AgentToolResult } from './chat.events'
+import {
+  ChatService,
+  type ModelRunner,
+  type StreamTextCall,
+} from './chat.service'
+import { ConversationService } from './history/conversation.service'
 import { MCPClientService } from './mcp-client.service'
 import { SessionService } from './session/session.service'
-import { ConversationService } from './history/conversation.service'
-import type {
-  AgentEvent,
-  AgentToolResult,
-} from './chat.events'
-import type {
-  MobileResponse,
-  Session,
-  WalletContext,
-} from './session/types'
+import type { MobileResponse, Session, WalletContext } from './session/types'
 
 /**
  * Test helpers — a stub MCP client that returns whatever tools the test
@@ -96,9 +93,7 @@ function makeScriptedRunner(script: ScriptedStep[]): ModelRunner {
   }
 }
 
-async function collect(
-  gen: AsyncGenerator<AgentEvent>,
-): Promise<AgentEvent[]> {
+async function collect(gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> {
   const out: AgentEvent[] = []
   for await (const e of gen) out.push(e)
   return out
@@ -125,9 +120,7 @@ async function collectUntil(
   }
 }
 
-async function drain(
-  gen: AsyncGenerator<AgentEvent>,
-): Promise<AgentEvent[]> {
+async function drain(gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> {
   const out: AgentEvent[] = []
   while (true) {
     const { value, done } = await gen.next()
@@ -140,6 +133,39 @@ describe('ChatService agent loop', () => {
   let moduleRef: TestingModule
   let chatService: ChatService
   let sessionService: SessionService
+
+  /**
+   * Drive a generator to completion, auto-resolving every `tool_pending`
+   * with a canned success the moment it is emitted. Used by the
+   * duplicate-read tests that need several mobile round-trips in one turn.
+   */
+  async function drainResolving(
+    gen: AsyncGenerator<AgentEvent>,
+    session: Session,
+    resultFor: (name: string) => Record<string, unknown> = () => ({
+      status: 'success',
+      data: { ok: true },
+    }),
+  ): Promise<AgentEvent[]> {
+    const out: AgentEvent[] = []
+    while (true) {
+      const { value, done } = await gen.next()
+      if (done) return out
+      out.push(value)
+      if (value.event === 'tool_pending') {
+        sessionService.resolveMobileResult(
+          session.id,
+          value.data.tool_call_id,
+          {
+            type: 'tool_result',
+            session_id: session.id,
+            tool_call_id: value.data.tool_call_id,
+            result: resultFor(value.data.name),
+          } as unknown as MobileResponse,
+        )
+      }
+    }
+  }
 
   beforeEach(async () => {
     moduleRef = await Test.createTestingModule({
@@ -165,8 +191,8 @@ describe('ChatService agent loop', () => {
     // Replace the real `streamText` with the scripted runner that
     // individual tests configure via `chatService.setModelRunner`. Also
     // stub out `getModel()` so it never reaches for a real API key.
-    ;(chatService as unknown as { getModel: () => LanguageModel }).getModel = () =>
-      ({} as LanguageModel)
+    ;(chatService as unknown as { getModel: () => LanguageModel }).getModel =
+      () => ({}) as LanguageModel
   })
 
   afterEach(async () => {
@@ -184,9 +210,7 @@ describe('ChatService agent loop', () => {
 
   it('completes a text-only turn with a `done` event', async () => {
     chatService.setModelRunner(
-      makeScriptedRunner([
-        { text: 'Hello! How can I help you?' },
-      ]),
+      makeScriptedRunner([{ text: 'Hello! How can I help you?' }]),
     )
 
     const session = seedSession('hi')
@@ -218,7 +242,11 @@ describe('ChatService agent loop', () => {
             {
               toolCallId: 'tc-mobile-1',
               toolName: 'send_native_token',
-              input: { to: '0xdeadbeef00000000000000000000000000000000', amount: '0.5', chain_name: 'Polygon' },
+              input: {
+                to: '0xdeadbeef00000000000000000000000000000000',
+                amount: '0.5',
+                chain_name: 'Polygon',
+              },
             },
           ],
         },
@@ -229,7 +257,10 @@ describe('ChatService agent loop', () => {
     const session = seedSession('send 0.5 MATIC')
     const gen = chatService.agentLoop(session)
 
-    const firstEvents = await collectUntil(gen, (e) => e.event === 'tool_pending')
+    const firstEvents = await collectUntil(
+      gen,
+      (e) => e.event === 'tool_pending',
+    )
     const pending = firstEvents[firstEvents.length - 1]
     expect(pending.event).toBe('tool_pending')
     if (pending.event !== 'tool_pending') throw new Error('unreachable')
@@ -250,11 +281,11 @@ describe('ChatService agent loop', () => {
     expect(rest.some((e) => e.event === 'done')).toBe(true)
 
     // Agent's context should contain an `approved_and_executed` result.
-    const toolMsg = session.messages
-      .filter((m) => m.role === 'tool')
-      .at(-1)
+    const toolMsg = session.messages.filter((m) => m.role === 'tool').at(-1)
     expect(toolMsg).toBeDefined()
-    const content = (toolMsg as { content: Array<{ output: { value: unknown } }> }).content[0]
+    const content = (
+      toolMsg as { content: Array<{ output: { value: unknown } }> }
+    ).content[0]
     expect(content.output.value).toMatchObject({
       status: 'approved_and_executed',
       tx_hash: '0xabc',
@@ -269,7 +300,11 @@ describe('ChatService agent loop', () => {
             {
               toolCallId: 'tc-fail',
               toolName: 'send_native_token',
-              input: { to: '0xdeadbeef00000000000000000000000000000000', amount: '1', chain_name: 'Polygon' },
+              input: {
+                to: '0xdeadbeef00000000000000000000000000000000',
+                amount: '1',
+                chain_name: 'Polygon',
+              },
             },
           ],
         },
@@ -292,7 +327,9 @@ describe('ChatService agent loop', () => {
 
     const toolMsg = session.messages
       .filter((m) => m.role === 'tool')
-      .at(-1) as unknown as { content: Array<{ output: { value: AgentToolResult } }> }
+      .at(-1) as unknown as {
+      content: Array<{ output: { value: AgentToolResult } }>
+    }
     expect(toolMsg.content[0].output.value).toEqual({
       status: 'approved_but_failed',
       error: 'nonce too low',
@@ -307,7 +344,11 @@ describe('ChatService agent loop', () => {
             {
               toolCallId: 'tc-rej',
               toolName: 'send_native_token',
-              input: { to: '0xdeadbeef00000000000000000000000000000000', amount: '1', chain_name: 'Polygon' },
+              input: {
+                to: '0xdeadbeef00000000000000000000000000000000',
+                amount: '1',
+                chain_name: 'Polygon',
+              },
             },
           ],
         },
@@ -330,11 +371,153 @@ describe('ChatService agent loop', () => {
 
     const toolMsg = session.messages
       .filter((m) => m.role === 'tool')
-      .at(-1) as unknown as { content: Array<{ output: { value: AgentToolResult } }> }
+      .at(-1) as unknown as {
+      content: Array<{ output: { value: AgentToolResult } }>
+    }
     expect(toolMsg.content[0].output.value).toEqual({
       status: 'rejected',
       reason: 'user_declined',
     })
+  })
+
+  it('strips a machinery-leak sentence from the streamed reply', async () => {
+    // The model leaks the exact "a specialist will assist you" phrasing. The
+    // filter must drop that sentence from BOTH the user stream and the stored
+    // assistant message (so Core never re-reads it either).
+    chatService.setModelRunner(
+      makeScriptedRunner([
+        {
+          text: 'You have 13.93 SUI. A specialist will assist you with the swap.',
+        },
+      ]),
+    )
+
+    const session = seedSession('check balance and swap')
+    const events = await collect(chatService.agentLoop(session))
+
+    const streamed = events
+      .filter((e) => e.event === 'text_delta')
+      .map((e) => (e as { data: { content: string } }).data.content)
+      .join('')
+    expect(streamed).toContain('You have 13.93 SUI.')
+    expect(streamed.toLowerCase()).not.toContain('specialist')
+
+    const stored = session.messages.find((m) => m.role === 'assistant')
+    const storedText = JSON.stringify(stored)
+    expect(storedText.toLowerCase()).not.toContain('specialist')
+  })
+
+  it('suppresses a model that restarts its whole answer in one turn', async () => {
+    // Kimi-K2 degenerate repetition: the model emits its full reply, then emits
+    // it AGAIN. The user must see it only ONCE.
+    const ANSWER =
+      'Berikut 3 rekomendasi produk DeFi untuk yield pasif:\n' +
+      '1. Fluid Lending (USDT) — Ethereum.\n' +
+      '2. Marinade (mSOL) — Solana.\n' +
+      'Semua tanpa IL. Mau mulai dari yang mana?\n'
+    chatService.setModelRunner(makeScriptedRunner([{ text: ANSWER + ANSWER }]))
+
+    const session = seedSession('rekomendasiin produk defi dong')
+    const events = await collect(chatService.agentLoop(session))
+
+    const streamed = events
+      .filter((e) => e.event === 'text_delta')
+      .map((e) => (e as { data: { content: string } }).data.content)
+      .join('')
+    const opener = 'Berikut 3 rekomendasi produk DeFi untuk yield pasif:'
+    expect(streamed.split(opener).length - 1).toBe(1) // opener appears once
+    expect(events.some((e) => e.event === 'done')).toBe(true)
+  })
+
+  it('blocks an identical re-read in one turn (duplicate-read spin guard)', async () => {
+    // The model calls the SAME read with the SAME args twice, then writes a
+    // closing line. The 2nd read must NOT be re-dispatched to mobile — only
+    // ONE tool_pending should reach the client — and the transcript must carry
+    // a synthetic `duplicate_call` result so the assistant tool_call is paired.
+    chatService.setModelRunner(
+      makeScriptedRunner([
+        {
+          toolCalls: [
+            { toolCallId: 'r1', toolName: 'get_wallet_balance', input: {} },
+          ],
+        },
+        {
+          toolCalls: [
+            { toolCallId: 'r2', toolName: 'get_wallet_balance', input: {} },
+          ],
+        },
+        { text: 'You have 10 USDC.' },
+      ]),
+    )
+
+    const session = seedSession('check my balance')
+    const events = await drainResolving(chatService.agentLoop(session), session)
+
+    const pendings = events.filter((e) => e.event === 'tool_pending')
+    expect(pendings).toHaveLength(1)
+    expect(events.some((e) => e.event === 'done')).toBe(true)
+
+    const dupResult = session.messages.find(
+      (m) =>
+        m.role === 'tool' &&
+        (
+          m as {
+            content: Array<{
+              output?: { value?: { data?: { duplicate_call?: boolean } } }
+            }>
+          }
+        ).content[0]?.output?.value?.data?.duplicate_call === true,
+    )
+    expect(dupResult).toBeDefined()
+  })
+
+  it('allows a re-read AFTER a write (read → write → read is not a duplicate)', async () => {
+    // A confirming re-read after a state-changing write is legitimate — the
+    // guard set is cleared on every write — so BOTH reads must dispatch.
+    chatService.setModelRunner(
+      makeScriptedRunner([
+        {
+          toolCalls: [
+            { toolCallId: 'b1', toolName: 'get_wallet_balance', input: {} },
+          ],
+        },
+        {
+          toolCalls: [
+            {
+              toolCallId: 'w1',
+              toolName: 'send_native_token',
+              input: {
+                to: '0xdeadbeef00000000000000000000000000000000',
+                amount: '1',
+                chain_name: 'Polygon',
+              },
+            },
+          ],
+        },
+        {
+          toolCalls: [
+            { toolCallId: 'b2', toolName: 'get_wallet_balance', input: {} },
+          ],
+        },
+        { text: 'Done — your new balance is 9 MATIC.' },
+      ]),
+    )
+
+    const session = seedSession('send 1 MATIC then check balance')
+    const events = await drainResolving(
+      chatService.agentLoop(session),
+      session,
+      (name) =>
+        name === 'send_native_token'
+          ? { status: 'success', tx_hash: '0xabc' }
+          : { status: 'success', data: { ok: true } },
+    )
+
+    const balancePendings = events.filter(
+      (e) => e.event === 'tool_pending' && e.data.name === 'get_wallet_balance',
+    )
+    expect(balancePendings).toHaveLength(2)
+    expect(events.some((e) => e.event === 'done')).toBe(true)
   })
 
   it('yields tool_timeout error and exits cleanly when mobile never responds', async () => {
@@ -345,7 +528,11 @@ describe('ChatService agent loop', () => {
             {
               toolCallId: 'tc-timeout',
               toolName: 'send_native_token',
-              input: { to: '0xdeadbeef00000000000000000000000000000000', amount: '1', chain_name: 'Polygon' },
+              input: {
+                to: '0xdeadbeef00000000000000000000000000000000',
+                amount: '1',
+                chain_name: 'Polygon',
+              },
             },
           ],
         },
@@ -389,7 +576,11 @@ describe('ChatService agent loop', () => {
             {
               toolCallId: 'tc-recon',
               toolName: 'send_native_token',
-              input: { to: '0xdeadbeef00000000000000000000000000000000', amount: '0.1', chain_name: 'Polygon' },
+              input: {
+                to: '0xdeadbeef00000000000000000000000000000000',
+                amount: '0.1',
+                chain_name: 'Polygon',
+              },
             },
           ],
         },

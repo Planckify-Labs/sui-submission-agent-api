@@ -89,14 +89,20 @@ export function buildCoreSystemPrompt(): string {
  * already told the user (which would double up the reply).
  */
 export const CORE_CONTINUATION_NOTE = `## Delegated step(s) just finished
-The step(s) you delegated have completed and the specialist(s) ALREADY replied
-to the user (their messages and any cards are on screen). Re-read the user's
-ORIGINAL message and check: is EVERY part of it now handled by the right
-specialist?
-- If a part still remains — especially a DIFFERENT domain (e.g. the user also
-  asked to swap or earn yield and only the wallet part is done) — CALL the
-  hand-off tool for that next part now. A specialist having earlier said it
-  "can't" do something does NOT count as handled; route it to the specialist
-  that CAN (swap/yield → defi).
-- Only when nothing remains, END THE TURN: emit NO hand-off and NO text. Do not
-  repeat, re-summarise, or congratulate — let the specialists' replies stand.`
+The specialist(s) you delegated to have run and ALREADY replied to the user (you
+do NOT see their replies — only the structured "Steps handled so far this turn"
+list below). Re-read the user's ORIGINAL message and compare it against that
+list: is EVERY part of it now handled by the right specialist?
+- If a DIFFERENT domain still remains that is NOT in the list yet — e.g. the user
+  also asked to swap or earn yield and only the wallet part has run — CALL the
+  hand-off tool for that next part now. A part the WRONG specialist punted ("I
+  can't swap") does NOT count as handled; route it to the specialist that CAN
+  (swap/yield → defi).
+- But any step shown in the list is DONE — even if the specialist could not
+  complete it (insufficient balance, a blocking risk flag) or ended by asking
+  the user a follow-up question. Do NOT hand that domain back to the SAME
+  specialist again and do NOT re-word it to retry: that only replays its reply
+  and reads as repeating itself. Let its question or result stand.
+- Only when nothing new remains, END THE TURN: emit NO hand-off and NO text. Do
+  not repeat, re-summarise, or congratulate — let the specialists' replies
+  stand.`

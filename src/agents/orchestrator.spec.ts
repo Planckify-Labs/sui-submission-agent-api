@@ -1,9 +1,14 @@
 import type { AgentEvent } from '../chat.events'
 import type { Session } from '../session/types'
-import type { CoreDecision, CoreStep, OrchestratorEngine } from './engine'
+import type {
+  CoreDecision,
+  CoreStep,
+  OrchestratorEngine,
+  StepResult,
+} from './engine'
 import { MAX_COORDINATION_HOPS, orchestrate } from './orchestrator'
 
-const fakeSession = { id: 'sess-1' } as unknown as Session
+const fakeSession = { id: 'sess-1', messages: [] } as unknown as Session
 
 /** Build a route decision from one or more steps. */
 const route = (
@@ -16,7 +21,7 @@ const route = (
 type RecordingEngine = OrchestratorEngine & {
   ran: string[]
   briefs: string[]
-  coreCalls: Array<{ resuming: boolean }>
+  coreCalls: Array<{ resuming: boolean; ledger: readonly StepResult[] }>
 }
 
 /**
@@ -41,7 +46,9 @@ function fakeEngine(decisions: CoreDecision[]): RecordingEngine {
       options,
     ): AsyncGenerator<AgentEvent, CoreDecision> {
       const resuming = options?.resuming === true
-      engine.coreCalls.push({ resuming })
+      // Snapshot the ledger so tests can assert the structured channel Core
+      // receives (clone — the orchestrator keeps mutating the same array).
+      engine.coreCalls.push({ resuming, ledger: [...(options?.ledger ?? [])] })
       const decision: CoreDecision = decisions[i++] ?? { kind: 'answered' }
       if (decision.kind === 'answered' && !resuming) {
         yield { event: 'text_delta', data: { content: 'core answer' } }
@@ -152,16 +159,21 @@ describe('agents/orchestrator orchestrate (multi-agent coordination)', () => {
     expect(events.at(-1)?.event).toBe('done')
   })
 
-  it('caps runaway delegation at MAX_COORDINATION_HOPS and finalizes once', async () => {
-    // Core never converges — it keeps delegating DISTINCT steps (distinct
-    // briefs so the identical-step guard doesn't fire first).
+  // THE "agent repeats the same message over and over" regression. Core keeps
+  // re-handing the SAME domain to the SAME specialist with a REWORDED brief each
+  // resume hop — exactly what CORE_CONTINUATION_NOTE invites when the specialist
+  // legitimately couldn't complete (insufficient balance) and ended by asking a
+  // question. The exact-string dedupe can't catch a reword; the per-specialist
+  // cross-hop guard runs it once and finalizes. We script far MORE hops than
+  // MAX_COORDINATION_HOPS to prove the guard (not the hop cap) is what bounds it.
+  it('runs each specialist at most once per turn — reworded re-delegation is skipped', async () => {
     const engine = fakeEngine(
       Array.from({ length: MAX_COORDINATION_HOPS + 6 }, (_, n) =>
-        route({ to: 'wallet', brief: `step ${n}` }),
+        route({ to: 'defi', brief: `preview swap, attempt ${n}` }),
       ),
     )
     const events = await collect(orchestrate(fakeSession, engine))
-    expect(engine.ran.length).toBe(MAX_COORDINATION_HOPS)
+    expect(engine.ran).toEqual(['defi'])
     expect(doneCount(events)).toBe(1)
     expect(events.at(-1)?.event).toBe('done')
   })
@@ -179,6 +191,45 @@ describe('agents/orchestrator orchestrate (multi-agent coordination)', () => {
     expect(events.at(-1)?.event).toBe('done')
   })
 
+  // The cross-hop guard must NOT clobber legitimate same-domain splits that
+  // arrive in ONE Core response (e.g. two sends). `ranInPriorHop` is only
+  // updated AFTER a hop, so both steps in the initial batch still run.
+  it('runs same-specialist steps that share ONE hop (multi-step decomposition)', async () => {
+    const engine = fakeEngine([
+      route(
+        { to: 'wallet', brief: 'send 1 USDC to Alice' },
+        { to: 'wallet', brief: 'send 2 USDC to Bob' },
+      ),
+      { kind: 'answered' },
+    ])
+    const events = await collect(orchestrate(fakeSession, engine))
+    expect(engine.ran).toEqual(['wallet', 'wallet'])
+    expect(doneCount(events)).toBe(1)
+  })
+
+  it('feeds Core a STRUCTURED step ledger on resume (not raw prose)', async () => {
+    // After the wallet step runs, Core is re-entered. The resume call must
+    // receive a typed ledger entry for that step — this is the structured
+    // channel that replaces Core re-reading the specialist's narration.
+    const engine = fakeEngine([
+      route({ to: 'wallet', brief: 'show points' }),
+      { kind: 'answered' },
+    ])
+    await collect(orchestrate(fakeSession, engine))
+
+    expect(engine.coreCalls.map((c) => c.resuming)).toEqual([false, true])
+    // Hop 0 (fresh) sees an empty ledger; the resume hop sees the wallet step.
+    expect(engine.coreCalls[0].ledger).toEqual([])
+    expect(engine.coreCalls[1].ledger).toEqual([
+      {
+        to: 'wallet',
+        brief: 'show points',
+        status: 'ran',
+        summary: 'ran wallet',
+      },
+    ])
+  })
+
   it('stamps wallet_context (§9) on every tool_pending forwarded from a specialist', async () => {
     const wallet_context = {
       address: '0xabc',
@@ -187,7 +238,11 @@ describe('agents/orchestrator orchestrate (multi-agent coordination)', () => {
       chain_name: 'Base',
       chain_symbol: 'ETH',
     }
-    const session = { id: 'sess-1', wallet_context } as unknown as Session
+    const session = {
+      id: 'sess-1',
+      wallet_context,
+      messages: [],
+    } as unknown as Session
 
     // The specialist emits a tool_pending WITHOUT wallet_context; the
     // orchestrator must stamp the turn's session.wallet_context onto it.

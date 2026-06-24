@@ -31,7 +31,9 @@ import {
   type CoreDecision,
   decideCoreRoute,
   type OrchestratorEngine,
+  type StepResult,
 } from './agents/engine'
+import { StreamSanitizer, stripMachineryLeak } from './agents/leakFilter'
 import { resolveModel } from './agents/models'
 import { orchestrate } from './agents/orchestrator'
 import {
@@ -448,6 +450,30 @@ export class ChatService implements OrchestratorEngine {
     const MAX_CONSECUTIVE_TOOL_FAILURES = 3
     let consecutiveFailedSteps = 0
 
+    // Duplicate-read spin guard. The MAX_CONSECUTIVE_TOOL_FAILURES guard above
+    // only catches tools that FAIL; a model that keeps re-issuing the SAME read
+    // with the SAME args — `get_balance`, `get_redemption_status` ("call ONCE;
+    // do NOT loop") — succeeds each time, resets that guard, and re-narrates on
+    // every iteration (a second, quieter flavour of the "repeats itself" bug).
+    // `seenReadCalls` records read (name+args) keys. The FIRST time the model
+    // re-issues an identical read we treat the turn as spinning and finalize it
+    // after this step — we do NOT give the model another iteration to narrate
+    // again. (We can't un-send the spinning iteration's text — it has already
+    // streamed by the time the tool call is classified — but we can stop ANY
+    // further re-narration, which is the most a post-hoc guard can do without
+    // abandoning live token streaming.) The set is CLEARED on every write, so a
+    // legitimate re-read after a state change (read → transfer → read to
+    // confirm) is still allowed.
+    const seenReadCalls = new Set<string>()
+    let sawDuplicateRead = false
+
+    // Per-TURN stream sanitizer: machinery-leak filter + repetition guard. Cuts
+    // the stream off if the model restarts its own answer (Kimi-K2 degenerate
+    // repetition — the byte-identical "same block twice" the user sees), and
+    // persists across iterations so a re-narration split over two model steps is
+    // caught too. See `StreamSanitizer`.
+    const sanitizer = new StreamSanitizer()
+
     while (iterations++ < MAX_ITERATIONS) {
       yield { event: 'status', data: { message: 'Thinking…' } }
 
@@ -488,23 +514,37 @@ export class ChatService implements OrchestratorEngine {
       // Stream text chunks as they arrive. Accumulating them here lets us
       // also push one consolidated assistant message into `session.messages`
       // at the end of the step so the next iteration carries the full
-      // context the model just produced.
+      // context the model just produced. Every chunk passes through the
+      // machinery-leak filter FIRST, so a leaked "a specialist will…" sentence
+      // reaches neither the user nor `assistantText` (and therefore not Core's
+      // context on the next hop) — a structural backstop to the prompt rules.
       let assistantText = ''
       let outputTruncated = false
+      const emitText = function* (
+        text: string,
+      ): Generator<AgentEvent, void, unknown> {
+        if (!text) return
+        if (assistantText.length < MAX_ASSISTANT_CHARS) {
+          assistantText += text
+          yield { event: 'text_delta', data: { content: text } }
+        } else if (!outputTruncated) {
+          outputTruncated = true
+        }
+      }
       try {
         for await (const chunk of call.textStream) {
-          if (assistantText.length < MAX_ASSISTANT_CHARS) {
-            assistantText += chunk
-            yield { event: 'text_delta', data: { content: chunk } }
-          } else if (!outputTruncated) {
-            outputTruncated = true
-            this.logger.warn(
-              'assistant output exceeded MAX_ASSISTANT_CHARS — draining ' +
-                'stream without buffering (runaway-generation OOM guard)',
-            )
-          }
-          // Past the cap we keep consuming the iterator (no buffering, no
-          // forwarding) so `call.toolCalls` resolves and the stream closes.
+          // Text passes through the sanitizer (leak filter + repetition guard).
+          // Once it trips, `push()` returns '' so nothing more is forwarded —
+          // but we keep draining the iterator so `call.toolCalls` resolves and
+          // the stream closes cleanly.
+          yield* emitText(sanitizer.push(chunk))
+        }
+        yield* emitText(sanitizer.endStep())
+        if (outputTruncated) {
+          this.logger.warn(
+            'assistant output exceeded MAX_ASSISTANT_CHARS — draining ' +
+              'stream without buffering (runaway-generation OOM guard)',
+          )
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -540,6 +580,27 @@ export class ChatService implements OrchestratorEngine {
           },
         }
         session.state = 'idle'
+        return
+      }
+
+      // Repetition guard tripped: the model restarted its own answer, so the
+      // streamed text was truncated at the restart. Treat the turn as complete
+      // — commit the (de-duplicated) text WITHOUT the degenerate response's tool
+      // calls and finalize, rather than executing tools off a runaway response.
+      if (sanitizer.stopped) {
+        this.logger.warn(
+          'agentLoop: repetition guard tripped — model restarted its answer; ' +
+            'truncating and finalizing turn',
+        )
+        if (assistantText.length > 0) {
+          session.messages.push({
+            role: 'assistant',
+            content: [{ type: 'text', text: assistantText }],
+          })
+        }
+        session.state = 'idle'
+        await this.persistTurnSoFar(session)
+        yield this.emitDone(session)
         return
       }
 
@@ -593,6 +654,35 @@ export class ChatService implements OrchestratorEngine {
       for (let i = 0; i < toolCalls.length; i++) {
         const tc = toolCalls[i]
         const meta = TOOL_REGISTRY[tc.toolName]
+        const capability = meta?.capability ?? 'write'
+
+        // Duplicate-read spin guard (see `seenReadCalls` above). An identical
+        // read already made THIS turn is NOT re-dispatched (no card replay, no
+        // round-trip); we flag the turn as spinning so it finalizes after this
+        // step rather than looping into another re-narration.
+        if (capability === 'read') {
+          const key = readCallKey(tc.toolName, tc.input)
+          if (seenReadCalls.has(key)) {
+            sawDuplicateRead = true
+            this.logger.warn(
+              `agentLoop: duplicate read ${tc.toolName} — finalizing turn ` +
+                'instead of re-dispatching / re-narrating',
+            )
+            // Pair the assistant tool_call with a result so the transcript
+            // stays valid (an orphaned tool_call_id trips the provider's 400).
+            // `data`-only (no `display`) so nothing renders on the mobile.
+            session.messages.push(
+              toolResultMessage(tc.toolCallId, tc.toolName, {
+                status: 'success',
+                data: { duplicate_call: true },
+              }),
+            )
+            await this.persistTurnSoFar(session)
+            stepProgressed = true
+            continue
+          }
+          seenReadCalls.add(key)
+        }
 
         if (meta && meta.executor === 'server') {
           // A server tool that returns data is progress; one that throws
@@ -606,6 +696,9 @@ export class ChatService implements OrchestratorEngine {
           )
           if (serverResult === 'failed') stepFailed = true
           else stepProgressed = true
+          // A write may change on-chain / points state, so previously-seen
+          // reads are no longer duplicates — clear the guard set.
+          if (capability === 'write') seenReadCalls.clear()
           continue
         }
 
@@ -692,6 +785,21 @@ export class ChatService implements OrchestratorEngine {
         }
         if (pendingResult === 'failed') stepFailed = true
         else stepProgressed = true
+        // A write may change state — clear the duplicate-read guard so a
+        // confirming re-read after it is allowed (read → write → read).
+        if (resolvedMeta.capability === 'write') seenReadCalls.clear()
+      }
+
+      // Duplicate-read spin guard: the model re-issued a read it already made
+      // this turn. Don't loop into another model iteration (that's where the
+      // pointless re-narration comes from) — stop cleanly here. The narration
+      // already streamed stands, so emit the terminal `done` (NOT an error);
+      // the orchestrator swallows it mid-turn and the mobile closes normally.
+      if (sawDuplicateRead) {
+        session.state = 'idle'
+        await this.persistTurnSoFar(session)
+        yield this.emitDone(session)
+        return
       }
 
       // Doomed-retry guard: a step where every tool failed and nothing
@@ -780,7 +888,11 @@ export class ChatService implements OrchestratorEngine {
    */
   async *runCoreRouter(
     session: Session,
-    options?: { resuming?: boolean },
+    options?: {
+      resuming?: boolean
+      turnStartIndex?: number
+      ledger?: readonly StepResult[]
+    },
   ): AsyncGenerator<AgentEvent, CoreDecision> {
     const resuming = options?.resuming === true
     this.prepareTurnWatermark(session)
@@ -802,13 +914,21 @@ export class ChatService implements OrchestratorEngine {
 
     yield { event: 'status', data: { message: 'Thinking…' } }
 
-    // When resuming mid-turn (a specialist just finished a step), append
-    // the continuation note so Core decides whether to delegate the next
-    // step or end the turn — without re-narrating what the specialist
-    // already told the user.
+    // STRUCTURED CHANNEL: show Core only history + the user's request
+    // (`messages[0..turnStartIndex)`), never this turn's specialist prose or
+    // tool-results. Its view of "what happened" comes from the typed `ledger`,
+    // injected into the system prompt — so routing can't be driven by parsing
+    // (or re-narrating) the specialist's free text. `turnStartIndex` is
+    // undefined on the single-agent path; fall back to the full log there.
+    const turnStartIndex = options?.turnStartIndex ?? session.messages.length
+    const coreMessages = session.messages.slice(0, turnStartIndex)
+
+    // When resuming mid-turn (a specialist just finished a step), append the
+    // continuation note + the structured step ledger so Core decides whether to
+    // delegate the next step or end the turn — from STATUS, not from narration.
     const baseSystem = this.buildAgentSystem(session, coreCfg)
     const system = resuming
-      ? `${baseSystem}\n\n${CORE_CONTINUATION_NOTE}`
+      ? `${baseSystem}\n\n${CORE_CONTINUATION_NOTE}\n\n${formatStepLedger(options?.ledger ?? [])}`
       : baseSystem
 
     let call: StreamTextCall
@@ -816,7 +936,7 @@ export class ChatService implements OrchestratorEngine {
       call = this.modelRunner({
         model,
         messages: this.stripDisplayForLLM(
-          dropOrphanedToolResults(sanitizeOrphanedToolCalls(session.messages)),
+          dropOrphanedToolResults(sanitizeOrphanedToolCalls(coreMessages)),
         ),
         tools: buildSchemaToolSet(coreCfg.tools),
         system,
@@ -885,11 +1005,16 @@ export class ChatService implements OrchestratorEngine {
     // On a resume we only reach here for a clarifying question. On a fresh
     // turn, surface Core's direct answer (greeting / capability), falling
     // back to a clarifying question, then a safe default.
-    const reply = resuming
+    const rawReply = resuming
       ? (question as string)
       : text.length > 0
         ? text
         : (question ?? 'How can I help?')
+    // Strip any machinery leak from Core's own answer too (it shouldn't leak,
+    // but the backstop is uniform). If filtering empties the reply, fall back
+    // to a neutral prompt rather than emitting nothing.
+    const filteredReply = stripMachineryLeak(rawReply).trim()
+    const reply = filteredReply.length > 0 ? filteredReply : 'How can I help?'
     yield { event: 'text_delta', data: { content: reply } }
     session.messages.push({
       role: 'assistant',
@@ -1818,6 +1943,46 @@ function dropOrphanedToolResults(messages: ModelMessage[]): ModelMessage[] {
  * standard `tool-result` content part shape so downstream providers can
  * map it back into OpenAI-compatible `tool` messages on the next step.
  */
+/**
+ * Stable, key-order-independent stringify. Used by `readCallKey` so two
+ * tool inputs that differ only in property order hash identically.
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  const obj = value as Record<string, unknown>
+  const body = Object.keys(obj)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`)
+    .join(',')
+  return `{${body}}`
+}
+
+/**
+ * Identity key for a read tool call (name + normalized args), used by the
+ * duplicate-read spin guard in `runAgentTurn`.
+ */
+function readCallKey(toolName: string, input: unknown): string {
+  return `${toolName}:${stableStringify(input)}`
+}
+
+/**
+ * Render the structured step ledger for Core's resume prompt. This is the
+ * typed Core⇄specialist channel: Core decides the next step from these status
+ * records, NOT by re-reading the specialist's prose from the transcript.
+ */
+function formatStepLedger(ledger: readonly StepResult[]): string {
+  if (ledger.length === 0) {
+    return '## Steps handled so far this turn\n(none yet)'
+  }
+  const lines = ledger.map((s, i) => {
+    const outcome = s.status === 'failed' ? 'FAILED' : 'handled'
+    const note = s.summary ? ` — said: "${s.summary}"` : ''
+    return `${i + 1}. ${s.to} ${outcome} the step "${s.brief}"${note}`
+  })
+  return `## Steps handled so far this turn\nThese domains have ALREADY been handled by the right specialist (do NOT re-delegate them — see the rule above):\n${lines.join('\n')}`
+}
+
 function toolResultMessage(
   toolCallId: string,
   toolName: string,
