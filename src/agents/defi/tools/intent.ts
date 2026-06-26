@@ -39,10 +39,13 @@ const DEFI_INTENT_PREVIEW: ToolMeta = {
     'pre-check the output token with get_wallet_sui_balance/get_wallet_sui_coins ' +
     '— ALWAYS call this tool for a swap goal and only report a token as ' +
     'unsupported if THIS tool returns an error (e.g. unsupported_pair / ' +
-    'no_swap_route). supply/withdraw (Scallop) is Sui-mainnet-only; on testnet ' +
-    'offer a swap (DeepBook) instead. Use action "swap_and_supply" for a ' +
-    'one-step "swap X to Y then earn yield on Y" goal — it compiles the swap ' +
-    'and the Scallop supply into ONE atomic PTB (mainnet-only, like supply).',
+    'no_swap_route). supply/withdraw to a Sui lending venue is mainnet-only; ' +
+    'on testnet offer a swap (DeepBook) instead. Pick the venue from ' +
+    'defi_list_opportunities (pass its protocol_slug as `venue`) — do NOT ' +
+    'require the user to name it and do NOT hardcode any one protocol. Use ' +
+    'action "swap_and_supply" for a one-step "swap X to Y then earn yield on ' +
+    'Y" goal — it compiles the swap and the supply into ONE atomic PTB ' +
+    '(mainnet-only, like supply).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -51,13 +54,18 @@ const DEFI_INTENT_PREVIEW: ToolMeta = {
         enum: ['supply', 'withdraw', 'swap', 'swap_and_supply'],
         description:
           'The goal type. "swap_and_supply" zaps fromAsset → toAsset and ' +
-          'supplies toAsset to Scallop in one atomic PTB (mainnet-only).',
+          'supplies toAsset to a lending venue in one atomic PTB ' +
+          '(mainnet-only).',
       },
       venue: {
         type: 'string',
-        enum: ['scallop'],
         description:
-          'For supply/withdraw only: the lending venue (mainnet-only).',
+          'The lending venue slug for supply/withdraw (and optionally for ' +
+          'swap_and_supply). Use the protocol_slug of a Sui yield ' +
+          'opportunity from defi_list_opportunities — NOT a hardcoded name. ' +
+          'Omit it to use the only registered venue when there is just one. ' +
+          'The device validates it against the registered venues and returns ' +
+          'an error for an unknown one (mainnet-only).',
       },
       asset: {
         type: 'string',

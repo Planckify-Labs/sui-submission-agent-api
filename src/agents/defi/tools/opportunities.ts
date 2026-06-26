@@ -18,7 +18,7 @@ const DEFI_LIST_OPPORTUNITIES: ToolMeta = {
   executor: 'mobile',
   capability: 'read',
   description:
-    'List DeFi yield opportunities filtered by tier, chain, asset, or liquidity profile. Use for "show me where I can park USDC" or "what conservative options are on Base".',
+    'List DeFi yield opportunities across every supported chain (EVM, Solana, AND Sui), filtered by tier, chain, namespace, asset, or liquidity profile. Use for "show me where I can park USDC", "what conservative options are on Base", or "earn yield on my Sui USDC". ALWAYS call this for any "earn yield"/"where can I park X" goal — it is the single source for venue choice; pick the best row within the user\'s tier and route by its `namespace` (do NOT make the user name a protocol). Each row carries `namespace`, `chain_id`, and `protocol_slug` (the venue id used by the deposit / Sui-intent tools).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -31,10 +31,17 @@ const DEFI_LIST_OPPORTUNITIES: ToolMeta = {
         type: 'string',
         description: 'Optional asset symbol filter (e.g. "USDC").',
       },
+      namespace: {
+        type: 'string',
+        enum: ['eip155', 'solana', 'sui'],
+        description:
+          'Optional chain-namespace filter. Use "sui" to surface Sui yield venues (their rows are chain_id 0, so filter by namespace, not chain_id), "eip155" for EVM, "solana" for Solana.',
+      },
       chain_id: {
         type: 'integer',
-        description: 'Optional chain id filter.',
-        minimum: 1,
+        description:
+          'Optional EVM chain id filter (e.g. 8453 for Base). For non-EVM, filter by `namespace` instead — Sui/Solana rows are chain_id 0.',
+        minimum: 0,
       },
       liquidity_profile: {
         type: 'string',
