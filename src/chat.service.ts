@@ -1590,6 +1590,7 @@ export function buildAgentToolResult(
       data?: unknown
       display?: unknown
       error?: string
+      reason?: string
     }
     if (r.status === 'success') {
       return {
@@ -1604,6 +1605,10 @@ export function buildAgentToolResult(
     return {
       status: 'approved_but_failed',
       error: r.error ?? 'Tool execution failed on the mobile wallet.',
+      // Forward the granular sub-reason so the model can choose a recovery
+      // (re-preview vs. fix-params vs. retry) instead of branching on `error`
+      // alone. Curated string only (the mobile side guarantees this).
+      ...(r.reason ? { reason: r.reason } : {}),
     }
   }
   return {

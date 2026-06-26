@@ -44,6 +44,13 @@ export type AgentToolResult =
   | {
       status: 'approved_but_failed'
       error: string
+      /**
+       * Granular curated sub-reason behind the coarse `error` code (e.g.
+       * `error: "stale_precondition"`, `reason: "intent_expired"`). Lets the
+       * model distinguish "refresh & re-preview" from "fix the params" from
+       * "transient, retry" without a freeform error string.
+       */
+      reason?: string
     }
   | {
       status: 'rejected'

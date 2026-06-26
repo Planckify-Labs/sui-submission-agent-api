@@ -126,6 +126,15 @@ export interface ToolResult {
   tx_confirmed?: boolean
   data?: unknown
   error?: string
+  /**
+   * Granular curated sub-reason behind the coarse `error` code (e.g.
+   * `error: "stale_precondition"`, `reason: "intent_expired"`). Set by the
+   * mobile `safeExecute`; forwarded into `AgentToolResult.approved_but_failed`
+   * so the model can pick a recovery (re-preview vs. fix-params vs. retry)
+   * instead of treating every failure as the same `error`. Curated string
+   * only — never raw runtime text.
+   */
+  reason?: string
 }
 
 /**

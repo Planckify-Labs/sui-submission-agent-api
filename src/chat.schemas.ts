@@ -63,6 +63,9 @@ export const toolResultPayloadSchema = z.object({
   tx_confirmed: z.boolean().optional(),
   data: z.unknown().optional(),
   error: z.string().optional(),
+  // Granular curated sub-reason behind the coarse `error` code. Open string
+  // (forward-compatible); zod would otherwise strip it before the agent loop.
+  reason: z.string().optional(),
 })
 
 export const toolResultBodySchema = z.object({

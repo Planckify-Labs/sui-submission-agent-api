@@ -336,6 +336,51 @@ describe('ChatService agent loop', () => {
     })
   })
 
+  it('forwards the granular `reason` onto approved_but_failed', async () => {
+    chatService.setModelRunner(
+      makeScriptedRunner([
+        {
+          toolCalls: [
+            {
+              toolCallId: 'tc-stale',
+              toolName: 'defi_intent_execute',
+              input: { intent_id: 'intent_abc' },
+            },
+          ],
+        },
+        { text: 'Let me re-preview to get a fresh plan.' },
+      ]),
+    )
+
+    const session = seedSession('swap 1 SUI to USDC')
+    const gen = chatService.agentLoop(session)
+    await collectUntil(gen, (e) => e.event === 'tool_pending')
+
+    sessionService.resolveMobileResult(session.id, 'tc-stale', {
+      type: 'tool_result',
+      session_id: session.id,
+      tool_call_id: 'tc-stale',
+      result: {
+        status: 'failed',
+        error: 'stale_precondition',
+        reason: 'intent_expired',
+      },
+    } as MobileResponse)
+
+    await drain(gen)
+
+    const toolMsg = session.messages
+      .filter((m) => m.role === 'tool')
+      .at(-1) as unknown as {
+      content: Array<{ output: { value: AgentToolResult } }>
+    }
+    expect(toolMsg.content[0].output.value).toEqual({
+      status: 'approved_but_failed',
+      error: 'stale_precondition',
+      reason: 'intent_expired',
+    })
+  })
+
   it('injects rejected { reason: "user_declined" } on tool_rejected', async () => {
     chatService.setModelRunner(
       makeScriptedRunner([
